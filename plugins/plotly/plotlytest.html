@@ -1,0 +1,55 @@
+<html xmlns="http://www.w3.org/1999/xhtml" style="height:100%">
+
+  <head>
+    <title>PHP Wrapper Test</title>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+    <meta content="utf-8" http-equiv="encoding">
+    <script src="js/plotly-latest.min.js"></script>
+    <script src="js/jsmagic.js"></script>
+  </head>
+
+  <body onload="plot('linear')">
+      <div id="graph" style="width:800px;height:450px;"></div>
+      
+      <form action="">
+          <label>Shape:
+              <select id="select_shape" name="select_shape" size="1" onchange="plot();">
+                  <option value="linear">linear</option>
+                  <option value="spline" linearscale>Spline</option>
+                  <option value="vhv">vhv</option>
+                  <option value="hvh">hvh</option>
+                  <option value="vh">vh</option>
+                  <option value="hv">hv</option>
+              </select>
+          </label>
+      </form>
+      <form action="">
+          <label>X-Axis:
+              <select id="select_xaxis" name="select_xaxis" size="1" onchange="plot();">
+                  <option value="" selected="selected">linear</option>
+                  <option value="log">log10</option>
+              </select>
+          </label>
+      </form>
+      <form action="">
+          <label>Y-Axis:
+              <select id="select_yaxis" name="select_yaxis" size="1" onchange="plot();">
+                  <option value="">linear</option>
+                  <option value="log" selected="selected">log10</option>
+              </select>
+          </label>
+      </form>
+      <form action="">
+          <label>Line Dash:
+              <select id="select_linedash" name="select_linedash" size="1" onchange="plot();">
+                  <option value="solid" selected="selected">solid</option>
+                  <option value="dashdot">dashdot</option>
+                  <option value="dot">dot</option>
+              </select>
+          </label>
+      </form>
+
+      
+  </body>
+  
+</html>
