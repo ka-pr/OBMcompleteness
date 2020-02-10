@@ -20,7 +20,10 @@ function Application(base_layers, overlays)
   // this._infoview_create();
 
   /* adds behavior to the site that transfers the map into a modal when scrolling down */
-  this._map_modal_init();
+  // this._map_modal_init();
+  $("#data").css({'visibility': 'hidden', 'height': '0px', 'min-height':'0px'});
+  $("#gfz_obm_tabpanes").css({'visibility': 'hidden', 'height': '0px', 'min-height':'0px'});
+  $('body').css({'overflow':'hidden'});
 
   /** zip filereader */
   this.zipfilereader.init(this._map_object);
@@ -142,7 +145,7 @@ Application.prototype.map_init = function(suffix = "")
 
   /** event hooks */
   this._map_object.map().on('moveend', function(e) {
-    var bb = this._map_object.map().getBounds().toBBoxString();
+    let bb = this._map_object.map().getBounds().toBBoxString();
     // TODO - disable saving state in modal, maybe?
     if (e.target._container.id.indexOf('_modal') !== -1) {
       zoom = this._map_object.map().getZoom()+1;
@@ -162,12 +165,24 @@ Application.prototype.map_init = function(suffix = "")
     if (this._obm) {
       this.remove_layer(this._obm);
     }
-    if (16 <= zoom) {
-      this._obm.addTo(this._map_object.map());
-      this._map_object.layercontrol().addOverlay(this._obm, 'OBM position');
+    if (15 <= zoom) {
+      this.add_layer(this._obm, 'OBM buildings');
     }
 
-  }.bind(this));
+  }.bind(this))
+    .on('overlayadd', function(e) {
+      console.log('... Overlay add', e.name);
+      let bbox = this._map_object.map().getBounds().toBBoxString().split(',');
+      $.cookie('overlay '+e.name, 1);
+      // custom event to react to layer added
+      let added_event = 'added_'+(e.name).replace(' ', '_'); // replace space /w _
+      // console.log('added event send', added_event);
+      $(document).trigger(added_event, [bbox]); // trigger and send current bbox
+    }.bind(this))
+    .on('overlayremove', function(e) {
+      console.log('... Overlay remove', e.name);
+      $.cookie('overlay '+e.name, 0);
+    });
 
   /* adds a listener to table rows that will react to user-interaction with the tabled data representation */
   this._data_table_add_row_clicklistener();
@@ -177,46 +192,43 @@ Application.prototype.map_init = function(suffix = "")
   let instancestate = new Instancestate();
 
   /** add some esri overlays. they look nice, so why not */
-  let esri = L.esri.basemapLayer("Topographic");
+  // let esri = L.esri.basemapLayer("Topographic");
   // esri.addTo(this._map_object.map());
-  this._map_object.layercontrol().addOverlay(esri, 'esri map');
+  // this._map_object.layercontrol().addOverlay(esri, 'esri map');
 
-  let bing = new L.BingLayer('AlxkFRFt1bwBkeqSDqWCYFDLwDs0q0HB91g18bl3EcItHi0l7lRaqRRp-z5d9H8F');
-  bing.addTo(this._map_object.map());
-  this._map_object.layercontrol().addOverlay(esri, 'bing map');
+  // let bing = new L.BingLayer('AlxkFRFt1bwBkeqSDqWCYFDLwDs0q0HB91g18bl3EcItHi0l7lRaqRRp-z5d9H8F');
+
+  let bing = L.tileLayer.bing('AlxkFRFt1bwBkeqSDqWCYFDLwDs0q0HB91g18bl3EcItHi0l7lRaqRRp-z5d9H8F');
+  this.add_layer(bing, 'Bing');
 
   // let obm = L.tileLayer('http://c-tiles.obm.gfz-potsdam.de/tiles/obm-ground-area/{z}/{x}/{y}.png',{maxzoom:19});
   // this._obm = L.tileLayer('http://c-tiles.obm.gfz-potsdam.de/tiles/gem-position/{z}/{x}/{y}.png',{maxzoom:16});
   /* http://[a-f]-tiles.obm.gfz.pm/tiles/all-buildings/{z}/{x}/{y}.png 	   */
   /* */
   this._map_object._grid = new Grid(this);
-  this._map_object._grid.draw_grid();
+  if (this.overlay_added(this._map_object._grid._layer_name)) {
+    this._map_object._grid.draw_grid();
+  } else {
+    this._map_object._grid.draw_grid(null);
+  }
+
 
   this._obm = L.tileLayer('http://a-tiles.obm.gfz.pm/tiles/all-buildings/{z}/{x}/{y}.png&tilesize={tileSize}&{test}',{
 	maxzoom:16,
 	tileSize: 256,
 	test: 42, //function() { return Math.random(); }
   });
-
-  this._obm.on('loading', function (event) {
-    // mapInstance.fireEvent('dataloading', event);
-    console.log('OBM completeness loading.');
-  });
-
-  this._obm.on('load', function (event) {
-    // mapInstance.fireEvent('dataload', event);
-    console.log('OBM completeness loaded.');
-  });
-  this._obm.addTo(this._map_object.map());
-  this._map_object.layercontrol().addOverlay(this._obm, 'OBM position');
+  this.add_layer(this._obm, 'OBM buildings');
 
 };
+
 
 
 Application.prototype.map_object = function()
 {
   return this._map_object;
 };
+
 
 /** invoked from the @class Map object, once the map is ready and data is fetched */
 Application.prototype.cb_map_ready = function()
@@ -229,12 +241,60 @@ Application.prototype.cb_map_ready = function()
   this._mouse_legend_map_interaction(this._map_object.overlays( this._map_object._description )[0]);
 };
 
-Application.prototype.add_layer = function(lay_obj, lay_dsc)
+
+Application.prototype.add_layer = function(layer, l_name)
 {
-  // console.log('adding layer', lay_dsc, lay_obj);
-  this._map_object.layercontrol().addOverlay(lay_obj, lay_dsc);
-  lay_obj.addTo(this._map_object._map);
+  console.log('Adding layer', l_name, layer);
+  this._add_to_map(layer, l_name);
+  // this._map_object.layercontrol().addOverlay(lay_obj, lay_dsc);
+  // lay_obj.addTo(this._map_object._map);
 };
+
+
+/** Finally, add the overlayer to the L map and init some events */
+Application.prototype._add_to_map = function(layer, l_name)
+{
+  if (this.overlay_added(l_name)) {
+    layer.addTo(this._map_object.map());
+  }
+  this._map_object.layercontrol().addOverlay(layer, l_name);
+  // fired when tile loading or loaded
+  layer.on('loading', function (event) {
+    // mapInstance.fireEvent('dataloading', event);
+    console.log('Layer ',l_name,' loading.');
+  }).on('load', function (event) {
+    // mapInstance.fireEvent('dataload', event);
+    console.log('Layer ',l_name,' loaded.');
+  }).on('layerremove', function(event) {
+    console.log('xxxxx');
+  });
+
+};
+
+
+/** Returns true when the overlay layer @string l_name
+    has been activated in the layer control or not
+    @param l_name the name of the layer as displayed in the layer control
+*/
+Application.prototype.overlay_added = function(l_name)
+{
+  let cookie_name = 'overlay '+l_name;
+  console.log('Overlay cookie', cookie_name, $.cookie(cookie_name), typeof $.cookie(cookie_name));
+  if (typeof $.cookie(cookie_name) === 'undefined') {
+    $.cookie(cookie_name, 1);
+  }
+  let cookie_value = parseInt($.cookie(cookie_name));
+  if (cookie_value === 1) {
+    return true;
+  } else if (cookie_value === 0) {
+    return false;
+  }
+  else {
+    // error
+    return null;
+  }
+};
+
 
 Application.prototype.remove_layer = function(lay_obj)
 {
@@ -324,22 +384,44 @@ Application.prototype._mouse_legend_map_interaction = function(overlay)
   console.log('... init mouse legend map interaction');
   var legend = this._legend_object;
   var style = this._style_object;
+  let grid = this._map_object._grid;
 
-  // var overlay = this._map_object.overlays( this._map_object._description )[0];
   $('.'+legend._prefix+'_infolegend_entry').on('mouseover', function(e) {
-    var value = $( this ).attr( 'data-value' );
-    // console.log('mouse over', value, /*style,*/ overlay._layer._layers, overlay._data._polygons[value]);
-    overlay._data._polygons[value].setStyle({
-      // weight: weight,
-      color: '#226',
-      dashArray: '',
-      opacity: 0.8
+    var completeness = $( this ).attr( 'data-value' );
+    // let layers = overlay._layers;
+    let layers = overlay._data._polygons._layers;
+    let ids_as_keys = Object.keys(layers);
+    // console.log('layers', layers);
+    // console.log('mouse over', value, /*style,*/ overlay._layer._layers, '>>>', ids_as_keys);
+    $.each(ids_as_keys, function(idx, key) {
+      if (typeof layers[key].feature === 'undefined') {
+        // console.log('undefined feature in', layers[key]);
+      } else {
+        // console.log('idx', idx, 'key', key, 'val', layers[key]);
+        if (layers[key].feature.properties['completeness'] == completeness) {
+          layers[key].setStyle({
+            fillOpacity: 0.9
+          });
+        }
+      }
     });
 
     // this._style_object({'type':'legendevent hover', 'properties':{'value':value}});
   }).on('mouseout', function(e) {
     var value = $( this ).attr( 'data-value' );
-    overlay._layer.resetStyle(overlay._data._polygons[value]);
+    let layers = overlay._data._polygons._layers;
+    let ids_as_keys = Object.keys(layers);
+    // console.log('mouseout overlay', overlay);
+    $.each(ids_as_keys, function(idx, key) {
+      if (typeof layers[key].feature === 'undefined') {
+        // console.log('undefined feature in', layers[key]);
+      } else {
+        // console.log('idx', idx, 'key', key, 'val', layers[key]);
+        // overlay._layer.resetStyle(layers[key]);
+        let completeness = layers[key].feature.properties['completeness'];
+        layers[key].setStyle(grid._styling[completeness]);
+      }
+    });
     // resetHighlight({'type':'mouseout', 'target':{'feature':{'properties':{'value':value}}}});
   }).on('click', function(e) {
     var value = $( this ).data( 'value' );
@@ -613,9 +695,9 @@ Application.prototype._behavior_and_events_init = function()
 
   /* the download button has been clicked
      add a temporary element to allow downloading the grid layer */
-  $('#gfz_obm_download_grid').click(function(e){
+  $('#'+this.ID_PREFIX+'_download_grid').click(function(e){
     // southwest_lng, southwest_lat, northeast_lng, northeast_lat
-    let bbox_str = $('#gfz_obm_bbox_coords').val();
+    let bbox_str = $('#'+this.ID_PREFIX+'_bbox_coords').val();
 
     if (bbox_str.length > 0) {
       let bbox = bbox_str.split(/[,;]/);
@@ -638,8 +720,8 @@ Application.prototype._behavior_and_events_init = function()
       } else {
         this._map_object._grid.get_completeness_from_bbox(bbox).then(function(response){
           // TODO what to do here?
-          // let json = JSON.stringify(response);
-          // this._download_json_popup(json);
+          let json = JSON.stringify(response);
+          this._download_json_popup(json);
         }.bind(this));
       }
 

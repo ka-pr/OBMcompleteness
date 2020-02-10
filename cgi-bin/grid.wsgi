@@ -8,6 +8,7 @@ from cgi import escape
 import StringIO as io
 import os, struct
 
+BINFILE = os.path.join('/home/prehn/git/completeness', 'bin/cmpltnss.bin')
 
 def application(environ, start_response):
     logger = logging.getLogger(__name__)
@@ -21,7 +22,8 @@ def application(environ, start_response):
     # the binary is of 16 GB size
     # each cell is Int16 => 2 x 8 Bit = 16 bit
     # 360 x 360 x 180 x 360 cells => ~8.4 10^9 cells
-    binfile = os.path.join(os.path.dirname(__file__), '../bin/cmpltnss.bin')
+    # binfile = os.path.join(os.path.dirname(__file__), '../bin/cmpltnss.bin')
+
     cell_size = 10.0/60.0**2 # in degree, 0.002777777777777778
 
     # the environment variable CONTENT_LENGTH may be empty or missing
@@ -53,7 +55,7 @@ def application(environ, start_response):
 
         # binfile = os.path.join(os.path.dirname(__file__), '../bin/helloworld.bin')
         binary_writer = BinaryWriter(logger=logger)
-        binary_writer.write_binary(binfile, data)
+        binary_writer.write_binary(BINFILE, data)
 
         status = b'200 OK'
         # response = json.dumps({'entries': entries, 'positions': positions})
@@ -66,7 +68,7 @@ def application(environ, start_response):
 
     elif action == 'get':
         binary_reader = BinaryReader(cellsize=cell_size, logger=logger)
-        data = binary_reader.read_binary(binfile, d['cells']) # completeness matrix
+        data = binary_reader.read_binary(BINFILE, d['cells']) # completeness matrix
 
         status = b'200 OK'
         logger.debug('Done. Status {}'.format(status))
@@ -82,7 +84,7 @@ def application(environ, start_response):
 
         if 'wsgi.file_wrapper' in environ:
             logger.debug('... 1')
-            return environ['wsgi.file_wrapper'](f, 4096)
+            return environ['wsgi.file_wrapper'](f, 1024)
         else:
             logger.debug('... 2')
             return iter(lambda: f.read(4096), '')
@@ -114,7 +116,7 @@ class BinaryWriter:
                 binary_new = (binary_old << 3) & 255 #65535
                 binary_new = (binary_new >> 3) | (v << 5)
                 # binary = binary >> 4
-                self.log.debug('Byte at {}: old {:08b} ({}) => new {:08b} ({})'.format(int(k/2), binary_old, binary_old, binary_new, binary_new))
+                self.log.debug('Addr {}: old {:08b} ({}) => new {:08b} ({})'.format(int(k), binary_old, binary_old, binary_new, binary_new))
                 f.seek(k)
                 # 0011010000111000
                 f.write(struct.pack('B', binary_new))

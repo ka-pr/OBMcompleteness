@@ -87,10 +87,12 @@ L_Map.prototype.init = function(params, suffix="")
   L.Map.addInitHook('addHandler', 'boxSelector', L.Map.BoxSelector);
   L.Map.mergeOptions({boxZoom: false});
 
+  // if baselayer data structure is empty provide empty list
+  let layers = this._layers.base.length > 0? [this._layers.base[0].layer()]: [];
   this._map = L.map(this._ids.map + suffix, {
     center: params.center,
     zoom: params.zoom,
-    layers: [this._layers.base[0].layer()]
+    layers: layers
   });
 
   /* hook into event to call back when the map is done loading */
@@ -361,11 +363,12 @@ L_Map.prototype._map_add_layer = function(layerobj)
       }
 
       /* add the layer to map */
-      layerobj.layer().addTo(this._map);
+      this._application.add_layer(layerobj.layer(), layerobj._layer_name);
+      // layerobj.layer().addTo(this._map);
       /* add the layer to the storing data structure */
       this._layers.overlay.push(layerobj);
       /* add a layer control element to the map */
-      this._layerControl.addOverlay(layerobj.layer(), layerobj.description());
+      // this._layerControl.addOverlay(layerobj.layer(), layerobj.description());
       /* we are done with the layer - callback to the application object */
       console.log('... callback (@fn:_map_add_layer): finished adding layer to the map, calling back to application object', layerobj);
       this._layer_defs[layerobj.description()].resolve('added layer '+layerobj.description());

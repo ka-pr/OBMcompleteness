@@ -37,7 +37,7 @@ Legend.prototype._infolegend_header = function(localisation_val)
 {
   return '<div id="'+this._prefix+'_infolegend_column" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">'+ // inner div bootstrap
     '<div class="'+this._prefix+'_infolegend_innerdiv">'+ // inner div
-    '<h4 class="'+this._prefix+'_localisation" value-local="' + localisation_val + '"></h4>';
+    '<h4 class="'+this._prefix+'_localisation" value-local="' + localisation_val + '"><span id="'+this._prefix+'_infolegend_heading">-1</span></h4>';
 };
 
 /** returns the bottom html tags of the infolegend element
@@ -76,9 +76,9 @@ Legend.prototype._create_legend = function(style)
 
       Object.keys(style_def).forEach(function (key) {
         inner_legend +=
-          '<i style="background:' + style_def[key] +  '"></i> ' +
-          '<a href="javascript:void(0)" class="'+_legend._prefix+'_infolegend_entry" data-value="'+key+'">'+style._display_feature_upon(key)+'</a>'+
-          '<br>';
+          '<div class="'+_legend._prefix+'_infolegend_entry_wrapper"><i style="background:' + style_def[key] +  '"></i> ' +
+          '<a href="javascript:void(0)" class="'+_legend._prefix+'_infolegend_entry" data-value="'+key+'">'+style._display_feature_upon(key)+'</a></div>'+
+          '';
       });
 
       //inner_legend += _legend._infolegend_footer(/*'$$'+UNIT_ACC+'$$'*/);

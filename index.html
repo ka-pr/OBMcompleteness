@@ -50,7 +50,9 @@
     <!--<script type="text/javascript" src="plugins/finger/jquery.finger.min.js"></script><!-- jQuery finger plugin - see: https://github.com/ngryman/jquery.finger -->
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-plugins/3.0.3/layer/tile/Bing.min.js"></script>
     <script type="text/javascript" src="plugins/turf/turf.min.js" charset="utf-8"></script>
+    <script type="text/javascript" src="plugins/leaflet-bing-layer/leaflet-bing-layer.min.js"></script> <!-- https://github.com/digidem/leaflet-bing-layer, https://www.igismap.com/add-different-base-map-layers-using-leaflet-js/ -->
     <!-- MAP FRAMEWORK SCRIPTS -->
+    <script src="https://cdn.polyfill.io/v2/polyfill.min.js?features=Promise"></script>
     <script type="text/javascript" src="scripts/oop/application.js"></script><!-- site applicaation class -->
     <script type="text/javascript" src="scripts/oop/map.js"></script><!-- base framework map class -->
     <script type="text/javascript" src="scripts/oop/data/data.js"></script><!-- data class -->
@@ -69,7 +71,7 @@
     <script type="text/javascript" src="scripts/oop/plot.js"></script><!-- class to wrap Plotly plots -->
   </head>
 
-  <body> <!-- body -->
+  <body id="body"> <!-- body -->
 
     <div id="gfz_obm_site_wrapper" class="">
 
@@ -96,7 +98,7 @@
                   <li><a href="http://www.openbuildingmap.org">OpenBuildingMap</a></li>
                 </ul>
               </li>
-              <li><a href="#map" title="Map">Map</a></li>
+              <li><a href="#gfz_obm_site_wrapper" title="Map">Map</a></li>
               <li><a href="#data" title="Data">Data</a></li>
             </ul>
 
@@ -167,146 +169,146 @@
 
 
       <!-- TODO echo_lower_wrapper() -->
-      <div id="data" class="container-fluid">
-        <div class="row"> <!-- nav tabs row -->
-          <!--  -->
-          <nav id="gfz_obm_navbar_scrollspy" class="navbar"> <!-- NAV -->
-            <!-- START tablist -->
-            <div id="gfz_obm_navlist_wrapper" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
-              <ul class="nav nav-tabs nav-justified" role="tablist" id="gfz_obm_tabs">
-                <!-- tab 1 -->
-                <li role="presentation">
-                  <a class="gfz_obm_tablink" href="#gfz_obm_tab1" aria-controls="gfz_obm_tab1" role="tab" data-toggle="tab">
-                    Tab 1 (Input View)
-                  </a>
-                </li>
-                <!-- tab 2 -->
-                <li role="presentation">
-                  <a class="gfz_obm_tablink" href="#gfz_obm_tab2" aria-controls="gfz_obm_tab2" role="tab" data-toggle="tab">
-                    Tab 2 (Data View)
-                  </a>
-                </li>
-                <!-- tab 3 -->
-                <li role="presentation">
-                  <a class="gfz_obm_tablink" href="#gfz_obm_tab3" aria-controls="gfz_obm_tab3" role="tab" data-toggle="tab">
-                    Tab 3
-                    <span class="gfz_obm_localisation" value-local="HELP"></span>
-                  </a>
-                </li>
-              </ul> <!-- nav tabs list -->
-            </div> <!-- nav tab col -->
-            <!-- //END tablist -->
+      <!-- <div id="data" class="container-fluid"> -->
+      <!-- <div class="row"> <!-- nav tabs row -->
+      <!--  -->
+      <!-- <nav id="gfz_obm_navbar_scrollspy" class="navbar"> <!-- NAV -->
+      <!-- START tablist -->
+      <!-- <div id="gfz_obm_navlist_wrapper" class="col-xs-12 col-sm-12 col-md-12 col-lg-12"> -->
+      <!-- <ul class="nav nav-tabs nav-justified" role="tablist" id="gfz_obm_tabs"> -->
+      <!-- tab 1 -->
+      <!-- <li role="presentation"> -->
+      <!-- <a class="gfz_obm_tablink" href="#gfz_obm_tab1" aria-controls="gfz_obm_tab1" role="tab" data-toggle="tab"> -->
+      <!-- Tab 1 (Input View) -->
+      <!-- </a> -->
+      <!-- </li> -->
+      <!-- tab 2 -->
+      <!-- <li role="presentation"> -->
+      <!-- <a class="gfz_obm_tablink" href="#gfz_obm_tab2" aria-controls="gfz_obm_tab2" role="tab" data-toggle="tab"> -->
+      <!-- Tab 2 (Data View) -->
+      <!-- </a> -->
+      <!-- </li> -->
+      <!-- tab 3 -->
+      <!-- <li role="presentation"> -->
+      <!-- <a class="gfz_obm_tablink" href="#gfz_obm_tab3" aria-controls="gfz_obm_tab3" role="tab" data-toggle="tab"> -->
+      <!-- Tab 3 -->
+      <!-- <span class="gfz_obm_localisation" value-local="HELP"></span> -->
+      <!-- </a> -->
+      <!-- </li> -->
+      <!-- </ul> <!-- nav tabs list -->
+      <!-- </div> <!-- nav tab col -->
+      <!-- //END tablist -->
 
-          </nav> <!-- / NAV #gfz_obm_navbar_scrollspy -->
-        </div> <!-- nav tab row -->
+      <!-- </nav> <!-- / NAV #gfz_obm_navbar_scrollspy -->
+      <!-- </div> <!-- nav tab row --><!--  -->
 
-      </div>
+      <!-- </div><!--  -->
 
-      <div id="gfz_obm_tabpanes" class="tab-content row" >
+      <!-- <div id="gfz_obm_tabpanes" class="tab-content row" > -->
+      <!-- TODO other tabs contents -->
+      <!-- tab 1 -->
+      <!-- <div id="gfz_obm_tab1" role="tabpanel" class="tab-pane active tabpanel_content_wrapper container-fluid"> -->
 
-        <!-- TODO other tabs contents -->
-        <!-- tab 1 -->
-        <div id="gfz_obm_tab1" role="tabpanel" class="tab-pane active tabpanel_content_wrapper container-fluid">
+      <!-- <div id="gfz_obm_data_input_wrapper" class="container" style="float:left; max-width: 700px"> -->
 
-          <div id="gfz_obm_data_input_wrapper" class="container" style="float:left; max-width: 700px">
+      <!-- Tab panes -->
+      <!-- <div id="gfz_obm_tab1panes" class="tab-content row" > -->
+      <!-- full width tab content container (-fluid) -->
+      <!-- <div id="gfz_obm_input_tab" name="gfz_obm_input_tab" role="tabpanel" -->
+      <!-- class="tab-pane active tabpanel_content_wrapper container-fluid" area-labelledby="maptab"> -->
+      <!-- <div id="gfz_obm_tab1panes_row" class="row panel panel-default"> -->
+      <!-- <div id="gfz_obm_map_controls_wrapper" class="panel-heading map_controls_wrapper col-xs-12 col-sm-12 col-md-12 col-lg-12"> -->
 
-            <!-- Tab panes -->
-            <div id="gfz_obm_tab1panes" class="tab-content row" >
-              <!-- full width tab content container (-fluid) -->
-              <div id="gfz_obm_input_tab" name="gfz_obm_input_tab" role="tabpanel"
-                   class="tab-pane active tabpanel_content_wrapper container-fluid" area-labelledby="maptab">
-                <div id="gfz_obm_tab1panes_row" class="row panel panel-default">
-                  <div id="gfz_obm_map_controls_wrapper" class="panel-heading map_controls_wrapper col-xs-12 col-sm-12 col-md-12 col-lg-12">
+      <!-- ... accordion href link -->
+      <!-- <div class="panel-heading" role="tab" id="gfz_obm_heading_accordion"> -->
+      <!-- <h4 class="panel-title"> -->
+      <!-- <a data-toggle="collapse" data-parent="#gfz_obm_input_tab" href="#gfz_obm_btngroup_wrapper_generalpurpose" -->
+      <!-- aria-expanded="true" aria-controls="gfz_obm_btngroup_generalpurpose"> -->
+      <!-- <div class="gfz_obm_seperator"></div> -->
+      <!-- <div class="gfz_obm_ui_heading"> -->
+      <!-- <span><strong class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></strong></span> -->
+      <!-- </div> -->
+      <!-- </a> -->
+      <!-- </h4> -->
+      <!-- </div> -->
 
-                    <!-- ... accordion href link -->
-                    <div class="panel-heading" role="tab" id="gfz_obm_heading_accordion">
-                      <h4 class="panel-title">
-                        <a data-toggle="collapse" data-parent="#gfz_obm_input_tab" href="#gfz_obm_btngroup_wrapper_generalpurpose"
-                           aria-expanded="true" aria-controls="gfz_obm_btngroup_generalpurpose">
-                          <div class="gfz_obm_seperator"></div>
-                          <div class="gfz_obm_ui_heading">
-                            <span><strong class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></strong></span>
-                          </div>
-                        </a>
-                      </h4>
-                    </div>
+      <!-- ... button group -->
+      <!-- <div class="panel-collapse collapse out" id="gfz_obm_btngroup_wrapper_generalpurpose" role="tabpanel" -->
+      <!-- aria-labelledby="gfz_obm_heading_accordion"> -->
+      <!-- <div class="btn-group"><!--  -->
 
-                    <!-- ... button group -->
-                    <div class="panel-collapse collapse out" id="gfz_obm_btngroup_wrapper_generalpurpose" role="tabpanel"
-                         aria-labelledby="gfz_obm_heading_accordion">
-                      <div class="btn-group">
+      <!-- <div class="dropdown"> -->
+      <!-- <button class="btn btn-default btn-block dropdown-toggle gfz_obm_ui_element" -->
+      <!-- type="button" id="fractile_dropdown_button" data-toggle="dropdown" -->
+      <!-- aria-haspopup="true" aria-expanded="false"> -->
+      <!-- <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span>:<!--  -->
 
-                        <div class="dropdown">
-                          <button class="btn btn-default btn-block dropdown-toggle gfz_obm_ui_element"
-                                  type="button" id="fractile_dropdown_button" data-toggle="dropdown"
-                                  aria-haspopup="true" aria-expanded="false">
-                            <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span>:
+      <!-- <span class="caret"></span> -->
+      <!-- </button> -->
+      <!-- TODO - dropdown values gmpe?  -->
+      <!-- <ul id="fractile_dropdown_list" class="dropdown-menu mapctrl-dropdown-menu gfz_obm_dropdown-menu" -->
+      <!-- aria-labelledby="fractile_dropdown_button" role="menu"> -->
+      <!-- <li><a href="javascript:void(0)" data-value="FIXME_SOMETHING"> -->
+      <!-- <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span> -->
+      <!-- </a></li> -->
+      <!-- <li><a href="javascript:void(0)" data-value="FIXME_SOMETHING"> -->
+      <!-- <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span> -->
+      <!-- </a></li> -->
+      <!-- <li><a href="javascript:void(0)" data-value="FIXME_SOMETHING"> -->
+      <!-- <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span> -->
+      <!-- </a></li> -->
+      <!-- </ul> -->
+      <!-- </div><!--  -->
 
-                            <span class="caret"></span>
-                          </button>
-                          <!-- TODO - dropdown values gmpe?  -->
-                          <ul id="fractile_dropdown_list" class="dropdown-menu mapctrl-dropdown-menu gfz_obm_dropdown-menu"
-                              aria-labelledby="fractile_dropdown_button" role="menu">
-                            <li><a href="javascript:void(0)" data-value="FIXME_SOMETHING">
-                              <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span>
-                            </a></li>
-                            <li><a href="javascript:void(0)" data-value="FIXME_SOMETHING">
-                              <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span>
-                            </a></li>
-                            <li><a href="javascript:void(0)" data-value="FIXME_SOMETHING">
-                              <span class="gfz_obm_localisation" value-local="FIXME_NO_TERM"></span>
-                            </a></li>
-                          </ul>
-                        </div>
+      <!-- </div> -->
+      <!-- </div><!--  -->
 
-                      </div>
-                    </div>
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- </div><!--  -->
 
-                  </div>
-                </div>
-              </div>
-            </div>
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- tab 2 -->
+      <!-- <div id="gfz_obm_tab2" role="tabpanel" class="tab-pane tabpanel_content_wrapper container-fluid"> -->
+      <!-- <div class="container" style="float:left; max-width: 700px"> -->
+      <!-- <div class="row"> -->
 
-          </div>
-        </div>
-        <!-- tab 2 -->
-        <div id="gfz_obm_tab2" role="tabpanel" class="tab-pane tabpanel_content_wrapper container-fluid">
-          <div class="container" style="float:left; max-width: 700px">
-            <div class="row">
+      <!-- <div class="col-xs-3 col-sm-3 col-md-3 col-lg-3"> -->
+      <!-- dropdown -->
+      <!-- <div class="dropdown"> -->
+      <!-- <button class="btn btn-primary btn-block dropdown-toggle" type="button" data-toggle="dropdown"> -->
+      <!-- Sort by&nbsp;<span class="caret"></span> -->
+      <!-- </button> -->
+      <!-- <ul class="dropdown-menu"> -->
+      <!-- <li><a id="gfz_obm_sort_by_zone" href="javascript:void(0)">Zone</a></li> -->
+      <!-- <li><a id="gfz_obm_sort_by_gmpe" href="javascript:void(0)">GMPE</a></li> -->
+      <!-- </ul> -->
+      <!-- </div> -->
+      <!-- </div><!--  -->
 
-              <div class="col-xs-3 col-sm-3 col-md-3 col-lg-3">
-                <!-- dropdown -->
-                <div class="dropdown">
-                  <button class="btn btn-primary btn-block dropdown-toggle" type="button" data-toggle="dropdown">
-                    Sort by&nbsp;<span class="caret"></span>
-                  </button>
-                  <ul class="dropdown-menu">
-                    <li><a id="gfz_obm_sort_by_zone" href="javascript:void(0)">Zone</a></li>
-                    <li><a id="gfz_obm_sort_by_gmpe" href="javascript:void(0)">GMPE</a></li>
-                  </ul>
-                </div>
-              </div>
+      <!-- <div class="col-xs-3 col-sm-3 col-md-3 col-lg-3"> -->
+      <!-- plot button -->
+      <!-- <button id="gfz_obm_button_plot" type="button" class="btn btn-primary btn-block">Plot</button> -->
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- <div class="row"> -->
+      <!-- table container -->
+      <!-- <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12"> -->
+      <!-- <div id="gfz_obm_data_table_wrapper"> -->
+      <!--<p>Contextual classes: .active, .success, .info, .warning, and .danger.</p>-->
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- </div> -->
+      <!-- tab 3 -->
+      <!-- <div id="gfz_obm_tab3" role="tabpanel" class="tab-pane tabpanel_content_wrapper container-fluid"> -->
+      <!-- TODO -->
+      <!-- </div> -->
+      <!-- </div> <!-- /End tab panes -->
 
-              <div class="col-xs-3 col-sm-3 col-md-3 col-lg-3">
-                <!-- plot button -->
-                <button id="gfz_obm_button_plot" type="button" class="btn btn-primary btn-block">Plot</button>
-              </div>
-            </div>
-            <div class="row">
-              <!-- table container -->
-              <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
-                <div id="gfz_obm_data_table_wrapper">
-                  <!--<p>Contextual classes: .active, .success, .info, .warning, and .danger.</p>-->
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- tab 3 -->
-        <div id="gfz_obm_tab3" role="tabpanel" class="tab-pane tabpanel_content_wrapper container-fluid">
-          TODO
-        </div>
-      </div> <!-- /End tab panes -->
     </div><!-- /#gfz_gmgpe_site_wrapper -->
   </body> <!-- /body -->
 
@@ -325,14 +327,16 @@
        /** @global */
        topo_attrib = 'Map data: &copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
        /* base layers */
-       base_layers = [['OSM DE', 'http://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png', osm_attrib],
-                      ['Mapnik', 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', osm_attrib],
-                      ['B&W', 'http://{s}.tiles.wmflabs.org/bw-mapnik/{z}/{x}/{y}.png', osm_attrib],
-                      ['Topo', 'http://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', topo_attrib],
-                      /* ['Google Streets', 'http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', ''],
-                       * ['Google Hybrid', 'http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', ''],
-                       * ['Google Satellite', 'http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', ''],
-                       * ['Google Terrain', 'http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', ''], */
+       base_layers = [
+         /* ['OSM DE', 'http://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png', osm_attrib], */
+         /* ['Mapnik', 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', osm_attrib], */
+         /* ['B&W', 'http://{s}.tiles.wmflabs.org/bw-mapnik/{z}/{x}/{y}.png', osm_attrib], */
+         /* ['Topo', 'http://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', topo_attrib], */
+
+         /* ['Google Streets', 'http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', ''],
+          * ['Google Hybrid', 'http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', ''],
+          * ['Google Satellite', 'http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', ''],
+          * ['Google Terrain', 'http://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', ''], */
        ],
        /* overlays = [['all 03', 'data/polygons/countries/all03.geojson']], */
        overlays = [['all05', 'data/polygons/countries/all.simple.0.005.geojson']],

@@ -20,10 +20,10 @@ import importlib
 ln_grid_wsgi = 'grid_wsgi' #input('Enter module name:')
 grid_wsgi = importlib.import_module(ln_grid_wsgi)
 
-if '__file__' not in globals():
-    binfile = '/home/prehn/git/completeness/bin/cmpltnss.bin~'
-else:
-    binfile = os.path.join(os.path.dirname(__file__), '../bin/cmpltnss.bin')
+# if '__file__' not in globals():
+BINFILE = '/home/prehn/git/completeness/bin/cmpltnss.bin'
+# else:
+    # binfile = os.path.join(os.path.dirname(__file__), '../bin/cmpltnss.bin')
 
 cell_frac_denominator = Decimal(360.0) # cells per degree along horizontal and vertical axis
 
@@ -33,7 +33,7 @@ def id2coords(_id, cell_frac_denominator):
     cells_to_right = _id % 129600
     cells_down = _id / 129600
     lat_bottom = 90-cells_down * cell_size # Lat3 BOTTOM left corner
-    lon_left = cells_to_right * cell_size - 180.0 # Lon3 bottom LEFT corner
+    lon_left = cells_to_right * cell_size - Decimal(180.0) # Lon3 bottom LEFT corner
     lat_top = lat_bottom + cell_size
     lon_right = lon_left + cell_size
     coords = [[lon_left,lat_top],[lon_right,lat_top],[lon_right,lat_bottom],[lon_left,lat_bottom],[lon_left,lat_top]]
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     # required arguments
-    parser.add_argument("bbox", help="bbox of area to create output from")
+    parser.add_argument("--bbox", help="bbox of area to create output from")
     # optional arguments
     parser.add_argument("--o", help="output file location")
 
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
     """ binary reader """
     binary_reader = grid_wsgi.BinaryReader()
-    cmpl_json = binary_reader.read_binary(binfile, data)
+    cmpl_json = binary_reader.read_binary(BINFILE, data)
 
     outfile = args.o
     if outfile is not None:
@@ -152,7 +152,7 @@ if __name__ == "__main__":
             log.exception('Error dumping request to {}'.format(args.o))
             exit(0)
     else:
-        print cmpl_json
+        print json.dumps(cmpl_json)
 
 
 
