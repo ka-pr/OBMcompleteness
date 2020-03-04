@@ -11,7 +11,7 @@ function Grid(application)
   this._feature_unique_id = 'id';
   this._layer = null;
   this._url = './bin/cmpltnss.bin';
-  this._max_zoom = 13; // 13
+  this._max_zoom = 12; // 13
   this._cell_frac_denominator = 360.0;
   this._cell_width = 1/360;
   this._cell_height = this._cell_width;

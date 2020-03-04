@@ -8,7 +8,8 @@ from cgi import escape
 import StringIO as io
 import os, struct
 
-BINFILE = os.path.join('/home/prehn/git/completeness', 'bin/cmpltnss.bin')
+# BINFILE = os.path.join('/home/prehn/git/completeness', 'bin/cmpltnss.bin')
+BINFILE = os.path.join('/home/prehn/git/OBMcompleteness', 'bin/cmpltnss.bin')
 
 def application(environ, start_response):
     logger = logging.getLogger(__name__)

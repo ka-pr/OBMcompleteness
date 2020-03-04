@@ -10,7 +10,7 @@ import json
 # sys.path.remove('/home/prehn/git/completeness/cgi-bin')
 # sys.path.remove('/home/prehn/git/completeness/py')
 
-py_script_path = '/home/prehn/git/completeness/py'
+py_script_path = '/home/prehn/git/OBMcompleteness/py'
 if not py_script_path in sys.path:
     sys.path.insert(1, py_script_path)
 else:
@@ -21,7 +21,7 @@ ln_grid_wsgi = 'grid_wsgi' #input('Enter module name:')
 grid_wsgi = importlib.import_module(ln_grid_wsgi)
 
 # if '__file__' not in globals():
-BINFILE = '/home/prehn/git/completeness/bin/cmpltnss.bin'
+BINFILE = '/home/prehn/git/OBMcompleteness/bin/cmpltnss.bin'
 # else:
     # binfile = os.path.join(os.path.dirname(__file__), '../bin/cmpltnss.bin')
 

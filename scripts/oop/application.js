@@ -165,7 +165,7 @@ Application.prototype.map_init = function(suffix = "")
     if (this._obm) {
       this.remove_layer(this._obm);
     }
-    if (15 <= zoom) {
+    if (12 <= zoom) {
       this.add_layer(this._obm, 'OBM buildings');
     }
 
