@@ -214,11 +214,28 @@ Application.prototype.map_init = function(suffix = "")
 
 
   this._obm = L.tileLayer('http://a-tiles.obm.gfz.pm/tiles/all-buildings/{z}/{x}/{y}.png&tilesize={tileSize}&{test}',{
-	maxzoom:16,
+	maxzoom:17,
 	tileSize: 256,
 	test: 42, //function() { return Math.random(); }
   });
   this.add_layer(this._obm, 'OBM buildings');
+
+
+  /** completeness quad tile layer */
+var redrawint = Math.floor( Math.random() * 200000 ) + 1
+var getRedrawInteger = function() {
+    return redrawint;
+};
+var incrementRedrawInteger = function() {
+    redrawint += 1;
+};
+  this._quad_cmpl = L.tileLayer('http://rs40/tiles/obm-completeness/{z}/{x}/{y}.png?tilesize={tileSize}&{randint}',{
+	randint: getRedrawInteger,
+	// maxzoom:21,
+	tileSize: 256,
+  });
+  // console.log('... adding OBM completeness layer (quadtree)',this._quad_cmpl);
+  this.add_layer(this._quad_cmpl, 'OBM completeness');
 
 };
 

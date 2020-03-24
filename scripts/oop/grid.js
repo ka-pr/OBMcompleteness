@@ -26,6 +26,7 @@ function Grid(application)
     0b011:'#e4808c', // incomplete, red
     0b100:'#ffffff', // undecidable,
     0b101:'#6a5acd', // H2O, slate blue
+    0b110:'#f4863a', // complete (empty)
   };
 
   /* parent ctor */
@@ -38,6 +39,7 @@ function Grid(application)
     0b011: {color:'#ff808c', opacity:.4, fillColor: '#e4808c', fillOpacity:.2}, // incomplete, red
     0b100: {color:'#ff8000', opacity:.6, fillColor: '#ffffff', fillOpacity:.4}, // undecidable, orange
     0b101: {color:'#aaaaaa', opacity:.0, fillColor: '#6a5acd', fillOpacity:.0}, // H2O, slate blue
+    0b101: {color:'#ff763a', opacity:.4, fillColor: '#f4863a', fillOpacity:.2}, // H2O, slate blue
   };
 
   this._completeness_categories = {
@@ -47,6 +49,7 @@ function Grid(application)
     0b011:'Incomplete', // incomplete, red
     0b100:'Undecidable', // undecidable, white
     0b101:'Irrelevant (Water)', // H2O, slate blue
+    0b110:'Complete (empty)', // complete (empty)
   };
 
   this._layers = {};
