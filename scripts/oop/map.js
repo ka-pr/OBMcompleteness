@@ -323,12 +323,11 @@ L_Map.prototype._map_on_keypress = function(e)
   let cmpl = this._currently_highlighted_cmpl;
   let key = e.originalEvent.key;
   // completeness categories
-  let cats = this._application._map_object._grid._completeness_categories;
+  let cats = this._application._map_object._quad._completeness_categories;
   // completeness values
-  let values = this._application._map_object._grid._completeness_values;
+  let values = this._application._map_object._quad._completeness_values;
   if (typeof cats[key] !== 'undefined') {
     // check if the pressed key is a valid number for a completeness status
-
     // if we try to change to the present completeness, skip
     if (key == cmpl) {return;}
     // if we are not highlighting a cell, skip
@@ -337,7 +336,7 @@ L_Map.prototype._map_on_keypress = function(e)
     let cat = cats[key]; // cmpl category
     console.log('currently hl id', id, 'cmpl', cmpl, 'key', key, cats);
     /* Set the completeness statusses as array on cells with id as array */
-    this._application._map_object._grid.set_completeness([id], [values[key]]);
+    this._application._map_object._quad.set_completeness([id], [values[key]]);
   }
 };
 

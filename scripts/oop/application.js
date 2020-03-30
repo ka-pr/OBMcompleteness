@@ -205,11 +205,19 @@ Application.prototype.map_init = function(suffix = "")
   // this._obm = L.tileLayer('http://c-tiles.obm.gfz-potsdam.de/tiles/gem-position/{z}/{x}/{y}.png',{maxzoom:16});
   /* http://[a-f]-tiles.obm.gfz.pm/tiles/all-buildings/{z}/{x}/{y}.png 	   */
   /* */
-  this._map_object._grid = new Grid(this);
-  if (this.overlay_added(this._map_object._grid._layer_name)) {
-    this._map_object._grid.draw_grid();
+
+  // this._map_object._grid = new Grid(this);
+  // if (this.overlay_added(this._map_object._grid._layer_name)) {
+  //   this._map_object._grid.draw_grid();
+  // } else {
+  //   this._map_object._grid.draw_grid(null);
+  // }
+
+  this._map_object._quad = new Quad(this);
+  if (this.overlay_added(this._map_object._quad._layer_name)) {
+    this._map_object._quad.draw_grid();
   } else {
-    this._map_object._grid.draw_grid(null);
+    this._map_object._quad.draw_grid(null);
   }
 
 
@@ -222,13 +230,13 @@ Application.prototype.map_init = function(suffix = "")
 
 
   /** completeness quad tile layer */
-var redrawint = Math.floor( Math.random() * 200000 ) + 1
-var getRedrawInteger = function() {
+  var redrawint = Math.floor( Math.random() * 200000 ) + 1;
+  var getRedrawInteger = function() {
     return redrawint;
-};
-var incrementRedrawInteger = function() {
+  };
+  var incrementRedrawInteger = function() {
     redrawint += 1;
-};
+  };
   this._quad_cmpl = L.tileLayer('http://rs40/tiles/obm-completeness/{z}/{x}/{y}.png?tilesize={tileSize}&{randint}',{
 	randint: getRedrawInteger,
 	// maxzoom:21,
@@ -401,7 +409,7 @@ Application.prototype._mouse_legend_map_interaction = function(overlay)
   console.log('... init mouse legend map interaction');
   var legend = this._legend_object;
   var style = this._style_object;
-  let grid = this._map_object._grid;
+  let grid = this._map_object._quad;
 
   $('.'+legend._prefix+'_infolegend_entry').on('mouseover', function(e) {
     var completeness = $( this ).attr( 'data-value' );
@@ -839,7 +847,7 @@ Application.prototype.overlay_style = function(layer_description, feature_name, 
 Application.prototype._process_layer = function(layer_description, feature_name, display_features)
 {
   let overlay = this._map_object.overlays(layer_description);
-  let grid = this._map_object._grid;
+  let grid = this._map_object._quad;
   console.log('... processing layer (@fn:_process_layer)', overlay, 'by feature name "', feature_name, '"');
   /* iterate over all overlays and apply a new style */
   // var feature_style_def = {};

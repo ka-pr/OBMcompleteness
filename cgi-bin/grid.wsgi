@@ -7,6 +7,10 @@ import logging, json
 from cgi import escape
 import StringIO as io
 import os, struct
+import psycopg2, re
+from pygeotile.tile import Tile
+from pygeotile.point import Point
+from shapely.geometry import box, shape, mapping
 
 # BINFILE = os.path.join('/home/prehn/git/completeness', 'bin/cmpltnss.bin')
 BINFILE = os.path.join('/home/prehn/git/OBMcompleteness', 'bin/cmpltnss.bin')
@@ -89,6 +93,20 @@ def application(environ, start_response):
         else:
             logger.debug('... 2')
             return iter(lambda: f.read(4096), '')
+
+    elif action == 'quad':
+        bbox = d['bbox']
+        quad_grid_builder = QuadGridBuilder(logger=logger)
+        quad_grid = quad_grid_builder.quadgrid_from_bbox(bbox)
+        logger.debug('Quad grids for BBOX {}'.format(bbox))
+
+        status = b'200 OK'
+        response = json.dumps(quad_grid)
+        response_headers = [('Content-type', 'application/json'),
+                            ('Content-Length', str(len(response)))
+        ]
+        start_response(status, response_headers)
+        return response
 
     else:
         logger.error('Don\'t know what to do with action [{}]'.format(action))
@@ -216,3 +234,121 @@ class TransformHelper:
         return _id
 
 
+class QuadGridBuilder:
+
+    def __init__(self, **kwargs):
+        self.log = kwargs.get('logger', logging.getLogger(__name__))
+
+    def quadgrid_from_bbox(self, bbox):
+        sql = """
+            SELECT cell_id, completeness FROM cmpl_grid WHERE cell_id ~* CONCAT('^', '%s', '[0-3]*$');
+        """
+        bbox_sw_qk = self.latlon2quadkey(bbox[1], bbox[0], 18) # 122100231210313321
+        bbox_ne_qk = self.latlon2quadkey(bbox[3], bbox[2], 18) # 122100231210313321
+
+        common_qk = self.common_parent_quadkey(int(bbox_sw_qk), int(bbox_ne_qk))
+        db_results = self.connect_obm_cmpl(sql, [(common_qk,)])
+        self.log.debug('Getting {} tiles below {}'.format(len(db_results), common_qk))
+        cmpls = {} # dict of quadkey => completeness
+        for qk, cmpl in db_results:
+            cmpls[qk] = cmpl
+
+        level2go = 18 - len('{}'.format(common_qk))
+
+        grid = self.quad_level_down(common_qk, level2go)
+        poly = {"type":"FeatureCollection",
+                  "features":[]}
+        for g in grid:
+            qk = g[0]
+            if qk in cmpls:
+                cmpl = cmpls[qk]
+            else:
+                regex_str = '^{cell_id}[0-3]*$'
+                cmpl_ptt = [c for c in cmpls if re.compile(regex_str.format(cell_id=c)).search(qk)]
+                if len(cmpl_ptt) == 1:
+                    cmpl = cmpls[cmpl_ptt[0]]
+                else:
+                    self.log.error('found in {} {}. Must be 1'.format(qk, cmpl_ptt))
+                    cmpl = 0
+
+            feature = {"type":"Feature",
+                 "properties":{"completeness": cmpl,
+                               "id": qk},
+                     "geometry":g[1]};
+            poly['features'].append(feature)
+
+        return poly
+
+
+    def latlon2quadkey(self, lat, lon, zoom):
+        point = Point.from_latitude_longitude(latitude=lat, longitude=lon) # point from lat lon in WGS84
+        tile = Tile.for_latitude_longitude(point.latitude_longitude[0], point.latitude_longitude[1], zoom)
+        return tile.quad_tree
+
+
+    def tile_bounds(self, qk):
+        t = Tile.from_quad_tree('{}'.format(qk)) # tile from a quad tree repr string
+        bounds = t.bounds
+        return bounds
+
+
+    def quadkey2bbox(self, qk):
+        bounds = self.tile_bounds(qk)
+        bb = shape(box(bounds[0].longitude, bounds[0].latitude, bounds[1].longitude, bounds[1].latitude))
+        return mapping(bb)
+
+
+
+    def common_parent_quadkey(self, q1, q2):
+        while (q1 != q2):
+            q1 /= 10
+            q2 /= 10
+        return q1
+
+
+    """ go down the quad tree by number of levels """
+    def quad_level_down(self, qk, levels, grid = None):
+        if grid == None:
+            grid = []
+        if levels == 0: # return statement
+            # self.log.warning('... qk {}'.format(qk))
+            bb = self.quadkey2bbox(qk)
+            grid += [(qk, bb)]
+        else:
+            for q in range(0,4,1):
+                next_qk = '{}{}'.format(qk,q)
+                self.quad_level_down(next_qk, levels-1, grid)
+
+        return grid
+
+
+    """  """
+    def connect_obm_cmpl(self, sql = "SELECT version();", data = None ):
+        try:
+            connection = psycopg2.connect(user = "prehn",
+                                          password = "HansaRostock",
+                                          host = "127.0.0.1",
+                                          port = "5432",
+                                          database = "obm_cmpl")
+            cursor = connection.cursor()
+
+            if data is None:
+                # fetch from DB
+                cursor.execute(sql)
+                record = cursor.fetchall()
+            else:
+                if len(data) == 1:
+                    cursor.execute(sql, data[0])
+                else:
+                    cursor.executemany(sql, data)
+                record = cursor.fetchall()
+                connection.commit()
+            return record
+
+        except (Exception, psycopg2.Error) as error :
+            self.log.exception("Error while connecting to PostgreSQL {}".format(error))
+        finally:
+            #closing database connection.
+            if(connection):
+                cursor.close()
+                connection.close()
