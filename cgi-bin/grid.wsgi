@@ -10,10 +10,17 @@ import os, struct
 import psycopg2, re
 from pygeotile.tile import Tile
 from pygeotile.point import Point
+from shapely import wkb
 from shapely.geometry import box, shape, mapping
 
 # BINFILE = os.path.join('/home/prehn/git/completeness', 'bin/cmpltnss.bin')
 BINFILE = os.path.join('/home/prehn/git/OBMcompleteness', 'bin/cmpltnss.bin')
+db_name = 'obm_cmpl'
+table_name = 'cmpl_grid'
+zoom = 17
+srid = 4326
+lose_no_information_cmpl = [0, 4, 5, 6]
+other_quadrants  = {'0':['1','2','3'], '1':['0','2','3'], '2':['0','1','3'], '3':['0','1','2']}
 
 def application(environ, start_response):
     logger = logging.getLogger(__name__)
@@ -94,7 +101,7 @@ def application(environ, start_response):
             logger.debug('... 2')
             return iter(lambda: f.read(4096), '')
 
-    elif action == 'quad':
+    elif action == 'quad_get':
         bbox = d['bbox']
         quad_grid_builder = QuadGridBuilder(logger=logger)
         quad_grid = quad_grid_builder.quadgrid_from_bbox(bbox)
@@ -102,6 +109,30 @@ def application(environ, start_response):
 
         status = b'200 OK'
         response = json.dumps(quad_grid)
+        response_headers = [('Content-type', 'application/json'),
+                            ('Content-Length', str(len(response)))
+        ]
+        start_response(status, response_headers)
+        return response
+
+    elif action == 'quad_set':
+        data = d['data']
+        quad_grid_builder = QuadGridBuilder(logger=logger)
+        logger.debug('data {}'.format(data))
+
+        for qk in data:
+            cmpl = data[qk]
+            quad_start_leafs = quad_grid_builder.same_quadrant_leafs(qk)
+            logger.debug('qk {}, cmpl {}, leafs {}'.format(qk, cmpl, quad_start_leafs))
+            upsert_and_remove_data = quad_grid_builder.upsert_quad_leafs(quad_start_leafs, quad_start=qk)
+            logger.debug('upsert/remove data {}'.format(upsert_and_remove_data))
+            resp = quad_grid_builder.update_database(upsert_and_remove_data, qk, cmpl)
+            logger.debug('DONE {}'.format(resp))
+
+
+
+        status = b'200 OK'
+        response = json.dumps(data)
         response_headers = [('Content-type', 'application/json'),
                             ('Content-Length', str(len(response)))
         ]
@@ -239,26 +270,34 @@ class QuadGridBuilder:
     def __init__(self, **kwargs):
         self.log = kwargs.get('logger', logging.getLogger(__name__))
 
+
     def quadgrid_from_bbox(self, bbox):
         sql = """
-            SELECT cell_id, completeness FROM cmpl_grid WHERE cell_id ~* CONCAT('^', '%s', '[0-3]*$');
+            SELECT cell_id, completeness, geom FROM cmpl_grid WHERE cell_id ~* CONCAT('^', '%s', '[0-3]*$');
         """
         bbox_sw_qk = self.latlon2quadkey(bbox[1], bbox[0], 18) # 122100231210313321
         bbox_ne_qk = self.latlon2quadkey(bbox[3], bbox[2], 18) # 122100231210313321
 
         common_qk = self.common_parent_quadkey(int(bbox_sw_qk), int(bbox_ne_qk))
+        self.log.debug('common qk {} of ({}, {})'.format(common_qk, bbox_sw_qk, bbox_ne_qk))
         db_results = self.connect_obm_cmpl(sql, [(common_qk,)])
         self.log.debug('Getting {} tiles below {}'.format(len(db_results), common_qk))
+
+        bbox_shp = shape(box(*bbox))
+        db_results_bb = [r for r in db_results if wkb.loads(r[2], hex=True).intersects(bbox_shp)]
+
         cmpls = {} # dict of quadkey => completeness
-        for qk, cmpl in db_results:
+        for qk, cmpl, _ in db_results_bb:
             cmpls[qk] = cmpl
 
         level2go = 18 - len('{}'.format(common_qk))
-
         grid = self.quad_level_down(common_qk, level2go)
+        grid_bb = [g for g in grid if g[1].intersects(bbox_shp)]
+        self.log.debug('Working with {} tiles in BBOX {}'.format(len(grid_bb), bbox))
+
         poly = {"type":"FeatureCollection",
                   "features":[]}
-        for g in grid:
+        for g in grid_bb:
             qk = g[0]
             if qk in cmpls:
                 cmpl = cmpls[qk]
@@ -274,7 +313,7 @@ class QuadGridBuilder:
             feature = {"type":"Feature",
                  "properties":{"completeness": cmpl,
                                "id": qk},
-                     "geometry":g[1]};
+                       "geometry":mapping(g[1])};
             poly['features'].append(feature)
 
         return poly
@@ -292,10 +331,14 @@ class QuadGridBuilder:
         return bounds
 
 
+    def quadkey2bbox_geom(self, qk):
+        bb = self.quadkey2bbox(qk)
+        return mapping(bb)
+
     def quadkey2bbox(self, qk):
         bounds = self.tile_bounds(qk)
         bb = shape(box(bounds[0].longitude, bounds[0].latitude, bounds[1].longitude, bounds[1].latitude))
-        return mapping(bb)
+        return bb
 
 
 
@@ -320,6 +363,250 @@ class QuadGridBuilder:
                 self.quad_level_down(next_qk, levels-1, grid)
 
         return grid
+
+
+
+    def same_quadrant_leafs(self, quad_key):
+        parent_cell = '{}'.format(quad_key)[:-1]
+        """ of the theoretical quad cells on the same level as quad_key get those that are in the DB """
+        child_cells = []
+        for i in range(0,4):
+            child_cells.append('{}{}'.format(parent_cell, i))
+        return child_cells
+
+
+
+
+    def upsert_quad_leafs(self, quad_start_leafs, leafs=None, **argv):
+        qsl_regex = ['^{}$'.format(leaf) for leaf in quad_start_leafs]
+        quad_start_leafs_db = self.db_leafs(qsl_regex)
+        if leafs is None: # at the end we return leafs to upsert or remove
+            leafs = {'upsert':[], 'remove':[]}
+
+        if quad_start_leafs_db is False:
+            self.log.debug('Insert new leafs {}'.format(quad_start_leafs))
+            leafs['upsert'] += quad_start_leafs
+            # find next leaf upwards the tree, this will become a parent node (=the cell gets removed)
+            # also determine all new leafs (=cells) to cover the world completely
+            parent_cell = '{}'.format(quad_start_leafs[0])[:-1]
+            parent_cell_db = self.db_leafs(['^{}$'.format(parent_cell)])
+
+            if not parent_cell_db:
+                self.log.debug('There is no parent leaf {}'.format(parent_cell))
+
+                parent_complement_cells_gen = self.traverse_quadtree_upwards(parent_cell, parent_cell[:-1])
+                pcc = next(parent_complement_cells_gen)
+                try:
+                    next(parent_complement_cells_gen)
+                except StopIteration:
+                    pass # all good
+                parent_complement_cells = pcc[1]
+
+                self.upsert_quad_leafs(parent_complement_cells, leafs, **argv)
+
+            elif len(parent_cell_db) == 1:
+                # we have to remove this leaf and insert subordinate quad key cells
+                self.log.debug('Found a parent leaf {}'.format(parent_cell)) #122101231 trace_leafs[next_leaf_above]
+                caq = self.complement_and_above_quadrants(parent_cell, parent_cell[:-1])
+                # these are the complement leafs for the above node we have to add
+                complement_leafs = [l for l in caq[0] if l != parent_cell]
+
+                # here we have to check whether the complement cells conflict with the DB
+                complement_leafs_db = self.db_leafs(complement_leafs)
+                self.log.debug('Found {} conflicting DB complement leafs'.format(len(complement_leafs_db)))
+
+                regex_str = '^{cell_id}[0-3]*$'
+                # we search for those complement cells that do not regex match with the data base cells
+                # thus we only take those cells where the length of that regex search list is zero
+                complement_leafs_nonconflicting = [c for c in complement_leafs if len(self.search_pattern_in_db_cells(
+                    re.compile(regex_str.format(cell_id=c)), complement_leafs_db.keys())) == 0]
+                self.log.debug('Insert new leafs {}'.format(complement_leafs_nonconflicting))
+
+                leafs['upsert'] += complement_leafs_nonconflicting
+                self.log.debug('Remove leaf'.format(parent_cell, parent_cell_db[parent_cell][-1]))
+                leafs['remove'] += [(parent_cell, parent_cell_db[parent_cell][-1])] # tuple of cell quad key & compl
+            else:
+                self.log.debug('Error {} leafs. There cannot be more than 1 leaf.'.format(len(parent_cell_db)))
+                raise ValueError('Parent cell {} has {} DB entries: {}.'.format(parent_cell, len(parent_cell_db), parent_cell_db))
+        else:
+            quad_start = argv.get('quad_start', None)
+            self.log.debug('Quad start {} Found {} leafs'.format(quad_start, len(quad_start_leafs_db)))
+            # since there are no nodes in the DB (only leafs), if quad_start is found it must be a leaf
+            if '{}'.format(quad_start) in quad_start_leafs_db:
+                self.log.debug('{} is a leaf'.format(quad_start))
+                # we are a leaf, so we can change attributes
+                leafs['upsert'] += [quad_start]
+            else:
+                regex_str = '^{cell_id}[0-3]*$'
+                child_cells = self.search_pattern_in_db_cells(re.compile(
+                    regex_str.format(cell_id=quad_start)), quad_start_leafs_db.keys())
+                self.log.debug('{} is a node. Childs {}'.format(quad_start, child_cells))
+                # we are a node, so there should not be any leafs or/and more nodes below quad_start
+                if len(child_cells) == 0:
+                    # this basically means some error happened before and this quadkey used to be a leaf that is now missing
+                    # we just add this cell again, because it is missing, which is wrong
+                    leafs['upsert'] += [quad_start]
+                else:
+                    pass
+                    # TODO
+
+                #
+        return leafs
+
+
+    def db_leafs(self, quad_keys):
+        """ Returns @list quad_keys quad cells from the DB """
+        quad_keys_sql = '|'.join('{}'.format(cc) for cc in quad_keys)
+        sql = """
+            SELECT cell_id, geom, completeness FROM {} WHERE
+            cell_id ~* '{}';
+            """.format(table_name, quad_keys_sql)
+
+        # print sql
+        db_result = self.connect_obm_cmpl(sql)
+        if len(db_result) == 0:
+            # no quad key was found in the DB
+            return False
+        else:
+            leafs = {}
+            for db_qc in db_result:
+                bounds = self.tile_bounds(db_qc[0])
+                leafs[db_qc[0]] = self.fiddle_db_entry_tuplet(db_qc[0], srid, db_qc[2])
+            return leafs
+
+
+    def fiddle_db_entry_tuplet(self, quadkey, srid, cmpl):
+        """ returns a tuplet of values to be put in the DB """
+        cell_id = '{}'.format(quadkey)
+        bounds = self.tile_bounds(quadkey)
+        return (cell_id, bounds[0].longitude, bounds[0].latitude, bounds[1].longitude, bounds[1].latitude, srid, cmpl)
+
+
+
+
+    def traverse_quadtree_upwards(self, quad_start, end_node=None):
+        """ this assembles all complementary cells (c) and all non complementary (nc) cells above quad_start (Z)
+            Z: the 1 cell where we change the completeness status
+            c: all remaining cells that cover the whole world with a minimum amount of cells
+            nc: all cells above Z that we potentially need to remove from the DB
+
+                ____________ _ _ _
+                  /nc      /|
+                 /        /
+                /        /
+            ___/________/_ _ _
+              |     ,   |   ,
+              |  ..,_______,________/__
+              |   /c  /c  /c       /
+              |  /___/___/        /
+              | /c  /Z/_/        /
+            __|/___/_/_/________/__
+        """
+
+        # print 'quad start', quad_start, 'end node', end_node
+        if len(quad_start) == 0 or quad_start == end_node:
+            return
+        endian_quadrant = quad_start[-1]
+        next_quad = quad_start[0:-1]
+        quadrants = other_quadrants[endian_quadrant]
+        yield quad_start, [next_quad + q for q in quadrants]
+        # print next_quad, endian_quadrant, other_quadrants[endian_quadrant]
+        for q in self.traverse_quadtree_upwards(next_quad, end_node):
+            yield q
+
+
+
+    def complement_and_above_quadrants(self, quad_start, end_node=None):
+        """ quad_start: quadkey of the cell that "triggert" a calculation """
+        # TODO check whether we need to change the cell
+        # print 'determine cells dependant on cell', quad_start
+        quads = self.traverse_quadtree_upwards('{}'.format(quad_start), end_node)
+        q1st = next(quads) # the first quadrant entrys, the very first one is the one we want to modify
+        above_quad_quadrants = [] # all the quadrants above the current quad
+        complement_quad_triplets = [] # all the other quadrants to fill the rest of the world
+
+        # we want all cells in the same level as the modified cell...
+        for q in [q1st[0]] + q1st[1]:
+            complement_quad_triplets.append(q)
+
+        # ... as well as all parent cells up the tree
+        for qs in quads:
+            above_quad_quadrants.append(qs[0]) # cells that are above and potentially cover quad_start and eventually need to be removed from the DB
+            for q in qs[1]:
+                complement_quad_triplets.append(q) # all complementary cell triplets per quadtree level
+
+        if len([i for i in complement_quad_triplets if i in above_quad_quadrants]) > 0:
+            # string for db query
+            # TODO do we need those strings anywere else?
+            above_quad_quadrants_sqlstr = ','.join('\'{}\''.format(qq) for qq in above_quad_quadrants)
+            complement_quad_triplets_sqlstr = ','.join('\'{}\''.format(qt) for qt in complement_quad_triplets)
+            self.log.error('Error selecting complementary quadrants')
+            self.log.debug('complementary cells {}'.format(above_quad_quadrants_sqlstr)) # all cells above us
+            self.log.debug('cells above {}'.format(complement_quad_triplets_sqlstr)) # the minimum amount of all other cells to cover the whole world
+        else:
+            # print 'dependant DB cells', dependant_db_cells_sqlstr
+            pass # print 'Okay'
+
+        return complement_quad_triplets, above_quad_quadrants
+
+
+
+
+    def search_pattern_in_db_cells(self, pattern, db_quad_cells):
+        # print 'pattern', pattern, 'DB quad cells', db_quad_cells
+        pattern_matches = []
+        for qc in db_quad_cells:
+            if(pattern.search(qc)):
+                try:
+                    pattern_matches.append(db_quad_cells[qc])
+                except:
+                    pattern_matches.append(qc)
+        # print 'pattern matches', pattern_matches
+        return pattern_matches
+
+
+
+    def update_database(self, upsert_and_remove_data, quad_start, new_cmpl):
+        remove = [r[0] for r in upsert_and_remove_data['remove']] if len(upsert_and_remove_data['remove']) > 0 else []
+        if len(upsert_and_remove_data['remove']) > 0:
+            remove = [r[0] for r in upsert_and_remove_data['remove']]
+            complement_cells_cmpl = upsert_and_remove_data['remove'][0][1] if len(remove) == 1 else 0
+            # only auto fill complement cells if they are of unknown, water or empty completeness
+            complement_cells_cmpl = complement_cells_cmpl if complement_cells_cmpl in lose_no_information_cmpl else 0
+        else:
+            remove = []
+            complement_cells_cmpl = 0
+        # print 'remove', remove, 'complement cells cmpl', complement_cells_cmpl
+
+        upsert = [self.fiddle_db_entry_tuplet(u, srid, new_cmpl) if str(u) == str(quad_start) else
+                  self.fiddle_db_entry_tuplet(u, srid, complement_cells_cmpl) for u in upsert_and_remove_data['upsert']]
+
+        rem_sql = ','.join('\'{}\''.format(d) for d in remove)
+        # self.log.debug('rem {}, ups {}'.format(rem_sql, upsert))
+
+        upsert_template = '%s, ST_MakeEnvelope(%s,%s,%s,%s, %s), %s'
+
+        sql_beg = """BEGIN;"""
+        sql_del = """
+        DELETE FROM {} WHERE cell_id IN ({});
+        """.format(table_name, rem_sql)
+        if len(remove) == 0:
+            sql_del = """"""
+
+        sql_ups = """
+        INSERT INTO {} (cell_id, geom, completeness)
+        VALUES ({})
+        ON CONFLICT (cell_id) DO UPDATE
+          SET cell_id = excluded.cell_id,
+              geom = excluded.geom,
+              completeness = excluded.completeness;
+        COMMIT;
+        """.format(table_name, upsert_template)
+        sql = sql_beg + sql_del + sql_ups
+
+        db_result = self.connect_obm_cmpl(sql, upsert)
+        return db_result
+
 
 
     """  """

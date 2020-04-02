@@ -222,7 +222,7 @@ Application.prototype.map_init = function(suffix = "")
 
 
   this._obm = L.tileLayer('http://a-tiles.obm.gfz.pm/tiles/all-buildings/{z}/{x}/{y}.png&tilesize={tileSize}&{test}',{
-	maxzoom:17,
+	maxzoom:18,
 	tileSize: 256,
 	test: 42, //function() { return Math.random(); }
   });

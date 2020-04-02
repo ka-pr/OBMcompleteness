@@ -334,7 +334,7 @@ L_Map.prototype._map_on_keypress = function(e)
     if (id === null || cmpl === null) {return;}
 
     let cat = cats[key]; // cmpl category
-    console.log('currently hl id', id, 'cmpl', cmpl, 'key', key, cats);
+    console.log('... Clicked', id, 'old cmpl', cmpl, '==> key', key);
     /* Set the completeness statusses as array on cells with id as array */
     this._application._map_object._quad.set_completeness([id], [values[key]]);
   }

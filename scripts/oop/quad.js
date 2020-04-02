@@ -84,7 +84,6 @@ Quad.prototype.Layer_ctr = Layer;
 */
 Quad.prototype.set_completeness = function(ids, entries)
 {
-  alert('TODO set cmpl');
   let data = {};
   ids.forEach((key,i) => data[key] = entries[i]);
 
@@ -95,8 +94,9 @@ Quad.prototype.set_completeness = function(ids, entries)
     this._layers[idx].feature.properties.completeness = completeness;
     this._layers[idx].setStyle(styling[completeness]);
   } // /TODO
+
   console.log('Setting new completeness on', data);
-  return;
+
   this._ajax_set_completeness(data);
 };
 
@@ -223,7 +223,7 @@ Quad.prototype._bind_events = function()
 Quad.prototype._ajax_get_completeness = function(bbox)
 {
   /* define an action type so we can distinguish between set and get */
-  let _d = {'action': 'quad',
+  let _d = {'action': 'quad_get',
             'bbox': bbox};
 
   let data = JSON.stringify(_d);
@@ -246,6 +246,55 @@ Quad.prototype._ajax_get_completeness = function(bbox)
   });
 };
 
+
+
+
+Quad.prototype._ajax_set_completeness = function(_data)
+{
+  /* define an action type so we can distinguish between set and get */
+  let _d = {'action': 'quad_set',
+            'data': _data};
+  let data = JSON.stringify(_d);
+  console.log('Set new completeness: JSON data string', data);
+
+  let layers = this._layers;
+  let categories = this._completeness_categories;
+  let styling = this._styling;
+  let set_curr_hl = this._set_currently_highlighted.bind(this);
+  let grid = this;
+  $.ajax({
+    url: '/wsgi/grid.wsgi',
+    method: 'POST',
+    data: data,
+    dataType: 'json',
+    processData: 'false',
+    // responseType: 'arraybuffer',
+    success: function(response) {
+      console.log('grid.wsgi post response', response);
+      for (let idx in response){
+        let completeness = response[idx];
+        layers[idx].feature.properties.completeness = completeness;
+        layers[idx].setStyle(styling[completeness]);
+        if (this.SHOW_POPUP){
+          layers[idx]._popup.setContent(categories[completeness]);
+          layers[idx].openPopup();
+        }
+        grid._legend_highlight(); // reset current legend highlight
+        grid._legend_highlight(completeness); // set new legend highlight
+      }
+      let keys = Object.keys(response);
+      if (keys.length == 1) {
+        let id = keys[0];
+        let new_cmpl = response[id];
+        // update the currently highlighted cells id and cmpl, so we don't set the same cmpl over and over again
+        set_curr_hl(id, new_cmpl);
+      }
+    },
+    error: function (xhr, ajaxOptions, thrownError) {
+      console.error('error fetching data', thrownError, xhr.status, xhr.responseText, xhr );
+    }
+  });
+};
 
 
 

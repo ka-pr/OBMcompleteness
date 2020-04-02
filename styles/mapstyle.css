@@ -99,6 +99,7 @@ body { position:relative; padding-right: 0 !important; overflow:auto;}
 #gfz_obm_infolegend_column { padding-right: 5px!important; padding-left: 5px!important; }
 .gfz_obm_infolegend_innerdiv h4 { vertical-align: middle; text-align: center }
 .gfz_obm_infolegend_innerdiv span { word-wrap: break-word; display: block; white-space: normal; }
+#gfz_obm_infolegend_heading {font-size: 14px;}
 
 #media {max-width: 35vw;}
 
