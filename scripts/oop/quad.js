@@ -16,52 +16,70 @@ function Quad(application)
 
   this._max_zoom = 17; // 13
 
-  this.UNKNOWN = 0b000; //0000000000000;
-  this.COMPLETE = 0b001; //0000000000000;
-  this.ALMOST_COMPLETE = 0b010; //0000000000000;
-  this.INCOMPLETE = 0b011; //0000000000000;
-  this.UNDECIDABLE = 0b100; //0000000000000;
-  this.H2O = 0b101; //0000000000000;
-  this.EMPTY = 0b110;
+  // this.UNKNOWN = 0b000; //0000000000000;
+  // this.COMPLETE = 0b001; //0000000000000;
+  // this.ALMOST_COMPLETE = 0b010; //0000000000000;
+  // this.INCOMPLETE = 0b011; //0000000000000;
+  // this.UNDECIDABLE = 0b100; //0000000000000;
+  // this.H2O = 0b101; //0000000000000;
+  // this.EMPTY = 0b110;
+
+  this.ERROR = {
+    '-1': {var:'ERROR_1', name: 'Error (miss)', value:-1, color:'#FF0000', fillColor:'#000000', opacity:.6, fillOpacity:.9}, // missing tile data
+    '-2': {var:'ERROR_2', name: 'Error (mult)', value:-2, color:'#FF0000', fillColor:'#FF0000', opacity:.6, fillOpacity:.6} // multiple tiles
+  };
 
   this._rect_options = {color: '#AAAAAA', fillOpacity: .2, weight: 1, onEachFeature: this._on_each_feature.bind(this)};
-
-  this._feature_style_def = {
-    0b000:'#777777', // unknown, grey
-    0b001:'#12a813', // complete, green
-    0b010:'#ffff00', // almost complete,
-    0b011:'#e4808c', // incomplete, red
-    0b100:'#ffffff', // undecidable,
-    0b101:'#6a5acd', // H2O, slate blue
-    0b110:'#f4863a', // complete (empty)
-  };
-  this._style = new Style(this._rect_options, this._feature_name, this._feature_style_def);
   this._styling = {
-    0b000: {color:'#aaaaaa', opacity:.4, fillColor: '#777777', fillOpacity:.4}, // unknown, grey
-    0b001: {color:'#80ff00', opacity:.4, fillColor: '#12a813', fillOpacity:.2}, // complete, green
-    0b010: {color:'#ff8000', opacity:.6, fillColor: '#ffff00', fillOpacity:.4}, // almost complete, orange
-    0b011: {color:'#ff808c', opacity:.4, fillColor: '#e4808c', fillOpacity:.2}, // incomplete, red
-    0b100: {color:'#ff8000', opacity:.6, fillColor: '#ffffff', fillOpacity:.4}, // undecidable, orange
-    0b101: {color:'#aaaaaa', opacity:.0, fillColor: '#6a5acd', fillOpacity:.0}, // H2O, slate blue
-    0b110: {color:'#ff763a', opacity:.4, fillColor: '#f4863a', fillOpacity:.2}, // H2O, slate blue
+    0b000: {var:'UNKNOWN', name: 'Unknown', value:0b000, color:'#aaaaaa', opacity:.4, fillColor: '#777777', fillOpacity:.4}, // unknown, grey
+    0b001: {var:'COMPLETE', name: 'Complete', value:0b001, color:'#80ff00', opacity:.4, fillColor: '#12a813', fillOpacity:.2}, // complete, green
+    0b010: {var:'ALMOST_COMPLETE', name: 'Almost complete', value:0b010, color:'#ff8000', opacity:.6, fillColor: '#ffff00', fillOpacity:.4}, // almost complete, orange
+    0b011: {var:'INCOMPLETE', name: 'Incomplete', value:0b011, color:'#ff808c', opacity:.4, fillColor: '#e4808c', fillOpacity:.2}, // incomplete, red
+    0b100: {var:'UNDECIDABLE', name: 'Undecidable', value:0b100, color:'#ff8000', opacity:.6, fillColor: '#ffffff', fillOpacity:.4}, // undecidable, orange
+    0b101: {var:'H2O', name: 'Irrelevant (Water)', value:0b101, color:'#aaaaaa', opacity:.0, fillColor: '#6a5acd', fillOpacity:.0}, // H2O, slate blue
+    0b110: {var:'EMPTY', name: 'Complete (empty)', value:0b110,  color:'#ff763a', opacity:.4, fillColor: '#f4863a', fillOpacity:.2}, // empty
   };
-  this._completeness_categories = {
-    0b000:'Unknown', // unknown, grey
-    0b001:'Complete', // complete, green
-    0b010:'Almost complete', // almost complete, turquoise
-    0b011:'Incomplete', // incomplete, red
-    0b100:'Undecidable', // undecidable, white
-    0b101:'Irrelevant (Water)', // H2O, slate blue
-    0b110:'Complete (empty)', // complete (empty)
-  };
-  this._completeness_values = {
-    0:this.UNKNOWN, //0000000000000;
-    1:this.COMPLETE, //0000000000000;
-    2:this.ALMOST_COMPLETE, //0000000000000;
-    3:this.INCOMPLETE, //0000000000000;
-    4:this.UNDECIDABLE, //0000000000000;
-    5:this.H2O //0000000000000;
-  };
+
+  this._feature_style_def = {};
+  this._completeness_categories = {}; // cmpl category name
+  this._completeness_values = {};
+  $.each(this._styling, function(k,v) {
+    this[v] = k;
+    this._feature_style_def[k] = v['fillColor'];
+    this._completeness_categories[k] = v['name'];
+    this._completeness_values[k] = k;
+  }.bind(this));
+
+  this._style = new Style(this._rect_options, this._feature_name, this._feature_style_def);
+
+  // this._feature_style_def = {
+  // 0b000:'#777777', // unknown, grey
+  // 0b001:'#12a813', // complete, green
+  // 0b010:'#ffff00', // almost complete,
+  // 0b011:'#e4808c', // incomplete, red
+  // 0b100:'#ffffff', // undecidable,
+  // 0b101:'#6a5acd', // H2O, slate blue
+  // 0b110:'#f4863a', // complete (empty)
+  // };
+
+  // this._completeness_categories = {
+  //   0b000:'Unknown', // unknown, grey
+  //   0b001:'Complete', // complete, green
+  //   0b010:'Almost complete', // almost complete, turquoise
+  //   0b011:'Incomplete', // incomplete, red
+  //   0b100:'Undecidable', // undecidable, white
+  //   0b101:'Irrelevant (Water)', // H2O, slate blue
+  //   0b110:'Complete (empty)', // complete (empty)
+  // };
+  // this._completeness_values = {
+  //   0:this.UNKNOWN, //0000000000000;
+  //   1:this.COMPLETE, //0000000000000;
+  //   2:this.ALMOST_COMPLETE, //0000000000000;
+  //   3:this.INCOMPLETE, //0000000000000;
+  //   4:this.UNDECIDABLE, //0000000000000;
+  //   5:this.H2O, //0000000000000;
+  //   6:this.EMPTY, //
+  // };
   this._layers = {};
 
 
@@ -336,10 +354,19 @@ Quad.prototype._on_each_feature = function(feature, layer)
     mouseout: this._feature_reset_highlight.bind(null, this),
     click: this._feature_on_click.bind(this),
   });
-  layer.options.fillColor = this._feature_style_def[completeness];
-  layer.options.color = this._styling[completeness]['color'];
-  layer.options.opacity = this._styling[completeness]['opacity'];
-  layer.options.fillOpacity = this._styling[completeness]['fillOpacity'];
+  if (this._styling.hasOwnProperty(completeness)) {
+    layer.options.fillColor = this._feature_style_def[completeness];
+    layer.options.color = this._styling[completeness]['color'];
+    layer.options.opacity = this._styling[completeness]['opacity'];
+    layer.options.fillOpacity = this._styling[completeness]['fillOpacity'];
+  } else {
+    let ERROR = this.ERROR[completeness];
+    // console.log('... Error', id, 'with completeness', completeness, 'Error style', ERROR);
+    layer.options.fillColor = ERROR.fillColor;
+    layer.options.color = ERROR.color;
+    layer.options.opacity = ERROR.opacity;
+    layer.options.fillOpacity = ERROR.fillOpacity;
+  }
   this._layers[id] = layer;
 };
 
@@ -410,7 +437,11 @@ Quad.prototype._legend_highlight = function(completeness, id)
     $('#'+this._application.ID_PREFIX+'_infolegend_heading').html(-1);
   } else {
     // highlight appropriately
-    $('.'+this._application.ID_PREFIX+'_infolegend_entry[data-value="'+completeness+'"]').parent().css({"border-color":this._styling[completeness]['color'], "border-style": 'solid'});
+    let color = this.ERROR[-1].color;
+    if (this._styling.hasOwnProperty(completeness)) {
+      color = this._styling[completeness]['color'];
+    }
+    $('.'+this._application.ID_PREFIX+'_infolegend_entry[data-value="'+completeness+'"]').parent().css({"border-color":color, "border-style": 'solid'});
     /* set the currently highlighted id in the legend */
     $('#'+this._application.ID_PREFIX+'_infolegend_heading').html(id);
   }
@@ -425,16 +456,27 @@ Quad.prototype._legend_highlight = function(completeness, id)
 Quad.prototype._style_default = function(feature)
 {
   /* pre-set a styling value for the fill color based on the passed in feature parameter */
-  var ret = { fillColor: this._feature_color(feature.properties[ this._style.feature_property_name() ]) };
+  let ret = { fillColor: this._feature_color(feature.properties[ this._style.feature_property_name() ]) };
   /* get reference to feature styling object */
-  var styledef = this._style.layer_style_definition();
+  let styledef = this._style.layer_style_definition();
   Object.keys(this._style.layer_style_definition()).forEach(function (key) {
     // console.log(key);
     ret[key] = styledef[key];
   });
-  ret['color'] = this._styling[feature.properties.completeness]['color'];
-  ret['opacity'] = this._styling[feature.properties.completeness]['opacity'];
-  ret['fillOpacity'] = this._styling[feature.properties.completeness]['fillOpacity'];
+  let completeness = feature.properties.completeness;
+  if (this._styling.hasOwnProperty(completeness)) {
+    ret['color'] = this._styling[completeness]['color'];
+    ret['fillColor'] = this._styling[completeness]['fillColor'];
+    ret['opacity'] = this._styling[completeness]['opacity'];
+    ret['fillOpacity'] = this._styling[completeness]['fillOpacity'];
+  } else {
+    let ERROR = this.ERROR[completeness];
+    // console.log('... Error', id, 'with completeness', completeness, 'Error style', ERROR);
+    ret['color'] = ERROR.color;
+    ret['fillColor'] = ERROR.fillColor;
+    ret['opacity'] = ERROR.opacity;
+    ret['fillOpacity'] = ERROR.fillOpacity;
+  }
   return ret;
 };
 
@@ -446,13 +488,18 @@ Quad.prototype._style_default = function(feature)
 Quad.prototype._feature_color = function(feature_property)
 {
   /* set a default feature styling value */
-  var ret = '#0000ff';
+  let ERROR = this.ERROR[feature_property];
+  let ret = this.ERROR.color;
   /* get reference to feature styling object */
-  var styledef = this._style.feature_style_definition();
+  let styledef = this._style.feature_style_definition();
   /* return feature style based on feature property @param feature_property */
-  Object.keys(styledef).forEach(function (key) {
-    if (key == feature_property) {ret = styledef[key];}
-  });
+
+  if (styledef.hasOwnProperty(feature_property)) {
+    ret = styledef[feature_property];
+  }
+  // Object.keys(styledef).forEach(function (key) {
+  //   if (key == feature_property) {ret = styledef[key];}
+  // });
   return ret;
 };
 

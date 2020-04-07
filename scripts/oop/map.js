@@ -125,7 +125,14 @@ L_Map.prototype.init = function(params, suffix="")
 
   this._map.doubleClickZoom.disable();
 
-
+  // TODO very hacky
+  this._map.keyboard.disable();
+  // TODO better go with sth along those lines:
+  // document.getElementById("mapid").onkeydown = function (e) {
+  //       if(e.keyCode == '54') {    // 6
+  //            e.stopPropagation();
+  //       }
+  //   };
 };
 
 /** *** ***
@@ -326,6 +333,7 @@ L_Map.prototype._map_on_keypress = function(e)
   let cats = this._application._map_object._quad._completeness_categories;
   // completeness values
   let values = this._application._map_object._quad._completeness_values;
+  console.log('... Clicked', key, 'categories', cats, 'values', values);
   if (typeof cats[key] !== 'undefined') {
     // check if the pressed key is a valid number for a completeness status
     // if we try to change to the present completeness, skip

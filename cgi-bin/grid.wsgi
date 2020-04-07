@@ -26,7 +26,8 @@ def application(environ, start_response):
     logger = logging.getLogger(__name__)
     if not logger.handlers:
         logger.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(asctime)s: %(levelname)-8s <[%(filename)s]> ...: %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+        # formatter = logging.Formatter('%(asctime)s: %(levelname)-8s <[%(filename)s]> ...: %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+        formatter = logging.Formatter('<[%(levelname)s: %(filename)s]> ...: %(message)s')
         consoleHandler = logging.StreamHandler()
         consoleHandler.setFormatter(formatter)
         logger.addHandler(consoleHandler)
@@ -279,36 +280,46 @@ class QuadGridBuilder:
         bbox_ne_qk = self.latlon2quadkey(bbox[3], bbox[2], 18) # 122100231210313321
 
         common_qk = self.common_parent_quadkey(int(bbox_sw_qk), int(bbox_ne_qk))
-        self.log.debug('common qk {} of ({}, {})'.format(common_qk, bbox_sw_qk, bbox_ne_qk))
+        self.log.debug('[BBOX] common qk {} of ({}, {})'.format(common_qk, bbox_sw_qk, bbox_ne_qk))
         db_results = self.connect_obm_cmpl(sql, [(common_qk,)])
-        self.log.debug('Getting {} tiles below {}'.format(len(db_results), common_qk))
+        self.log.debug('[BBOX] Getting {} tiles below common qk {}'.format(len(db_results), common_qk))
 
         bbox_shp = shape(box(*bbox))
         db_results_bb = [r for r in db_results if wkb.loads(r[2], hex=True).intersects(bbox_shp)]
 
-        cmpls = {} # dict of quadkey => completeness
+        cmpls_db = {} # dict of quadkey => completeness
         for qk, cmpl, _ in db_results_bb:
-            cmpls[qk] = cmpl
+            cmpls_db[qk] = cmpl
 
         level2go = 18 - len('{}'.format(common_qk))
         grid = self.quad_level_down(common_qk, level2go)
         grid_bb = [g for g in grid if g[1].intersects(bbox_shp)]
-        self.log.debug('Working with {} tiles in BBOX {}'.format(len(grid_bb), bbox))
+        self.log.debug('[BBOX] Working with {} tiles in BBOX {}'.format(len(grid_bb), bbox))
 
         poly = {"type":"FeatureCollection",
                   "features":[]}
+        regex_str = '^{cell_id}[0-3]*$'
         for g in grid_bb:
             qk = g[0]
-            if qk in cmpls:
-                cmpl = cmpls[qk]
-            else:
-                regex_str = '^{cell_id}[0-3]*$'
-                cmpl_ptt = [c for c in cmpls if re.compile(regex_str.format(cell_id=c)).search(qk)]
-                if len(cmpl_ptt) == 1:
-                    cmpl = cmpls[cmpl_ptt[0]]
+            # check whether this tile (at grid zoom level) is in the database
+            cmpl_ptt = [c for c in cmpls_db if re.compile(regex_str.format(cell_id=c)).search(qk)]
+            len_cmpl_ptt = len(cmpl_ptt)
+
+            if len_cmpl_ptt == 1:
+                if qk in cmpls_db:
+                    cmpl = cmpls_db[qk]
+                    del cmpls_db[qk]
                 else:
-                    self.log.error('found in {} {}. Must be 1'.format(qk, cmpl_ptt))
-                    cmpl = 0
+                    cmpl = cmpls_db[cmpl_ptt[0]]
+            else:
+                # err, there's no tile above this quad cell
+                self.log.error('found {} tiles in or above {} {}. Must be 1'.format(len_cmpl_ptt, qk, cmpl_ptt))
+                if qk in cmpls_db:
+                    del cmpls_db[qk]
+                if len_cmpl_ptt == 0:
+                    cmpl = -1
+                else:
+                    cmpl = -2
 
             feature = {"type":"Feature",
                  "properties":{"completeness": cmpl,
@@ -378,13 +389,14 @@ class QuadGridBuilder:
 
 
     def upsert_quad_leafs(self, quad_start_leafs, leafs=None, **argv):
+        quad_level = len('{}'.format(quad_start_leafs[0]))
         qsl_regex = ['^{}$'.format(leaf) for leaf in quad_start_leafs]
         quad_start_leafs_db = self.db_leafs(qsl_regex)
         if leafs is None: # at the end we return leafs to upsert or remove
             leafs = {'upsert':[], 'remove':[]}
 
         if quad_start_leafs_db is False:
-            self.log.debug('Insert new leafs {}'.format(quad_start_leafs))
+            self.log.debug('[QZ:{}] Insert new leafs {}'.format(quad_level, quad_start_leafs))
             leafs['upsert'] += quad_start_leafs
             # find next leaf upwards the tree, this will become a parent node (=the cell gets removed)
             # also determine all new leafs (=cells) to cover the world completely
@@ -392,7 +404,7 @@ class QuadGridBuilder:
             parent_cell_db = self.db_leafs(['^{}$'.format(parent_cell)])
 
             if not parent_cell_db:
-                self.log.debug('There is no parent leaf {}'.format(parent_cell))
+                self.log.debug('[QZ:{}] There is no parent leaf {}'.format(quad_level, parent_cell))
 
                 parent_complement_cells_gen = self.traverse_quadtree_upwards(parent_cell, parent_cell[:-1])
                 pcc = next(parent_complement_cells_gen)
@@ -406,41 +418,41 @@ class QuadGridBuilder:
 
             elif len(parent_cell_db) == 1:
                 # we have to remove this leaf and insert subordinate quad key cells
-                self.log.debug('Found a parent leaf {}'.format(parent_cell)) #122101231 trace_leafs[next_leaf_above]
+                self.log.debug('[QZ:{}] Found a parent leaf {}'.format(quad_level, parent_cell)) #122101231 trace_leafs[next_leaf_above]
                 caq = self.complement_and_above_quadrants(parent_cell, parent_cell[:-1])
                 # these are the complement leafs for the above node we have to add
                 complement_leafs = [l for l in caq[0] if l != parent_cell]
 
                 # here we have to check whether the complement cells conflict with the DB
                 complement_leafs_db = self.db_leafs(complement_leafs)
-                self.log.debug('Found {} conflicting DB complement leafs'.format(len(complement_leafs_db)))
+                self.log.debug('[QZ:{}] Found {} conflicting DB complement leafs'.format(quad_level, len(complement_leafs_db)))
 
                 regex_str = '^{cell_id}[0-3]*$'
                 # we search for those complement cells that do not regex match with the data base cells
                 # thus we only take those cells where the length of that regex search list is zero
                 complement_leafs_nonconflicting = [c for c in complement_leafs if len(self.search_pattern_in_db_cells(
                     re.compile(regex_str.format(cell_id=c)), complement_leafs_db.keys())) == 0]
-                self.log.debug('Insert new leafs {}'.format(complement_leafs_nonconflicting))
+                self.log.debug('[QZ:{}] Insert new leafs {}'.format(quad_level, complement_leafs_nonconflicting))
 
                 leafs['upsert'] += complement_leafs_nonconflicting
-                self.log.debug('Remove leaf'.format(parent_cell, parent_cell_db[parent_cell][-1]))
+                self.log.debug('[QZ:{}] Remove leaf'.format(quad_level, parent_cell, parent_cell_db[parent_cell][-1]))
                 leafs['remove'] += [(parent_cell, parent_cell_db[parent_cell][-1])] # tuple of cell quad key & compl
             else:
-                self.log.debug('Error {} leafs. There cannot be more than 1 leaf.'.format(len(parent_cell_db)))
-                raise ValueError('Parent cell {} has {} DB entries: {}.'.format(parent_cell, len(parent_cell_db), parent_cell_db))
+                self.log.debug('[QZ:{}] Error {} leafs. There cannot be more than 1 leaf.'.format(quad_level, len(parent_cell_db)))
+                raise ValueError('[QZ:{}] Parent cell {} has {} DB entries: {}.'.format(quad_level, parent_cell, len(parent_cell_db), parent_cell_db))
         else:
             quad_start = argv.get('quad_start', None)
-            self.log.debug('Quad start {} Found {} leafs'.format(quad_start, len(quad_start_leafs_db)))
+            self.log.debug('[QZ:{}] Quad start {} Found {} leafs'.format(quad_level, quad_start, len(quad_start_leafs_db)))
             # since there are no nodes in the DB (only leafs), if quad_start is found it must be a leaf
             if '{}'.format(quad_start) in quad_start_leafs_db:
-                self.log.debug('{} is a leaf'.format(quad_start))
+                self.log.debug('[QZ:{}] {} is a leaf'.format(quad_level, quad_start))
                 # we are a leaf, so we can change attributes
                 leafs['upsert'] += [quad_start]
             else:
                 regex_str = '^{cell_id}[0-3]*$'
                 child_cells = self.search_pattern_in_db_cells(re.compile(
                     regex_str.format(cell_id=quad_start)), quad_start_leafs_db.keys())
-                self.log.debug('{} is a node. Childs {}'.format(quad_start, child_cells))
+                self.log.debug('[QZ:{}] {} is a node. Childs {}'.format(quad_level, quad_start, child_cells))
                 # we are a node, so there should not be any leafs or/and more nodes below quad_start
                 if len(child_cells) == 0:
                     # this basically means some error happened before and this quadkey used to be a leaf that is now missing
@@ -611,6 +623,7 @@ class QuadGridBuilder:
 
     """  """
     def connect_obm_cmpl(self, sql = "SELECT version();", data = None ):
+        # dsn = """user='{}' password='{}' host='{}' port='{}' databse='{}'""".format('prehn','HansaRostock','127.0.0.1','5432','obm_cmpl')
         try:
             connection = psycopg2.connect(user = "prehn",
                                           password = "HansaRostock",
@@ -628,7 +641,13 @@ class QuadGridBuilder:
                     cursor.execute(sql, data[0])
                 else:
                     cursor.executemany(sql, data)
-                record = cursor.fetchall()
+                cur_msg = cursor.statusmessage
+                cur_cnt = cursor.rowcount
+                self.log.debug('[CONN] statusmessage {}, rowcount {}'.format(cur_msg, cur_cnt))
+                if cur_cnt == -1:
+                    record = [1]
+                else:
+                    record = cursor.fetchall()
                 connection.commit()
             return record
 
