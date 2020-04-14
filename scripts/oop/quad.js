@@ -44,7 +44,7 @@ function Quad(application)
   this._completeness_categories = {}; // cmpl category name
   this._completeness_values = {};
   $.each(this._styling, function(k,v) {
-    this[v] = k;
+    this[v.var] = k;
     this._feature_style_def[k] = v['fillColor'];
     this._completeness_categories[k] = v['name'];
     this._completeness_values[k] = k;
@@ -104,6 +104,7 @@ Quad.prototype.set_completeness = function(ids, entries)
 {
   let data = {};
   ids.forEach((key,i) => data[key] = entries[i]);
+  // console.log('ids', ids, 'entries', entries, 'data', data);
 
   // TODO remove later
   let styling = this._styling;
@@ -471,7 +472,6 @@ Quad.prototype._style_default = function(feature)
     ret['fillOpacity'] = this._styling[completeness]['fillOpacity'];
   } else {
     let ERROR = this.ERROR[completeness];
-    // console.log('... Error', id, 'with completeness', completeness, 'Error style', ERROR);
     ret['color'] = ERROR.color;
     ret['fillColor'] = ERROR.fillColor;
     ret['opacity'] = ERROR.opacity;
@@ -525,7 +525,7 @@ Quad.prototype._feature_on_click = function(e)
   // let entry = 0b0001000000000000;
   // FIXME UGLY :(((
   let entry = this.UNKNOWN;
-  if (completeness == this.UNKNOWN) {
+  if (completeness == this.UNKNOWN) { // 0
     entry = this.COMPLETE;
   } else if (completeness == this.COMPLETE) {
     entry = this.ALMOST_COMPLETE;
@@ -539,7 +539,7 @@ Quad.prototype._feature_on_click = function(e)
     entry = this.EMPTY;
   } else if (completeness == this.EMPTY) {
     entry = this.COMPLETE;
-  } else {
+  } else { // errors
     entry = this.UNKNOWN;
   }
   let entries = [entry];

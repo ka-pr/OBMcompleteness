@@ -118,17 +118,18 @@ def application(environ, start_response):
 
     elif action == 'quad_set':
         data = d['data']
+        len_data = len(data)
         quad_grid_builder = QuadGridBuilder(logger=logger)
-        logger.debug('data {}'.format(data))
+        logger.debug('Received new tile data {}.'.format(data))
 
-        for qk in data:
+        for cnt, qk in enumerate(data, 1):
             cmpl = data[qk]
             quad_start_leafs = quad_grid_builder.same_quadrant_leafs(qk)
-            logger.debug('qk {}, cmpl {}, leafs {}'.format(qk, cmpl, quad_start_leafs))
+            logger.debug('[{}/{}: {}.QL:{}] START assembling data changes with: new completeness {}, complementary leafs {}'.format(cnt, len_data, qk, len(qk), cmpl, quad_start_leafs))
             upsert_and_remove_data = quad_grid_builder.upsert_quad_leafs(quad_start_leafs, quad_start=qk)
-            logger.debug('upsert/remove data {}'.format(upsert_and_remove_data))
+            logger.debug('[{}/{}] Executing changes to the DB: {}.'.format(cnt, len_data, upsert_and_remove_data))
             resp = quad_grid_builder.update_database(upsert_and_remove_data, qk, cmpl)
-            logger.debug('DONE {}'.format(resp))
+            logger.debug('[{}/{}] DONE {}.'.format(cnt, len_data, resp))
 
 
 
@@ -317,9 +318,9 @@ class QuadGridBuilder:
                 if qk in cmpls_db:
                     del cmpls_db[qk]
                 if len_cmpl_ptt == 0:
-                    cmpl = -1
+                    cmpl = -1 # empty tile
                 else:
-                    cmpl = -2
+                    cmpl = -2 # overlapping tiles
 
             feature = {"type":"Feature",
                  "properties":{"completeness": cmpl,
@@ -389,14 +390,23 @@ class QuadGridBuilder:
 
 
     def upsert_quad_leafs(self, quad_start_leafs, leafs=None, **argv):
-        quad_level = len('{}'.format(quad_start_leafs[0]))
-        qsl_regex = ['^{}$'.format(leaf) for leaf in quad_start_leafs]
-        quad_start_leafs_db = self.db_leafs(qsl_regex)
+        regex_str = '^{cell_id}[0-3]*$'
         if leafs is None: # at the end we return leafs to upsert or remove
             leafs = {'upsert':[], 'remove':[]}
 
+        quad_level = argv.get('quad_level', len('{}'.format(quad_start_leafs[0])) if len(quad_start_leafs)>0 else -1 )
+        self.log.debug('[QL:{}] Calculating ...'.format(quad_level))
+
+        # TODO
+        if len(quad_start_leafs) == 0:
+            quad_start_leafs_db = []
+            self.log.debug('[QL:{}] No quad start leafs.'. format(quad_level))
+        else:
+            sql_regex = ['^{}$'.format(leaf) for leaf in quad_start_leafs]
+            quad_start_leafs_db = self.db_leafs(sql_regex)
+
         if quad_start_leafs_db is False:
-            self.log.debug('[QZ:{}] Insert new leafs {}'.format(quad_level, quad_start_leafs))
+            self.log.debug('[QL:{}] Insert new leafs {}.'.format(quad_level, quad_start_leafs))
             leafs['upsert'] += quad_start_leafs
             # find next leaf upwards the tree, this will become a parent node (=the cell gets removed)
             # also determine all new leafs (=cells) to cover the world completely
@@ -404,65 +414,113 @@ class QuadGridBuilder:
             parent_cell_db = self.db_leafs(['^{}$'.format(parent_cell)])
 
             if not parent_cell_db:
-                self.log.debug('[QZ:{}] There is no parent leaf {}'.format(quad_level, parent_cell))
+                parent_quad_level = quad_level - 1
+                self.log.debug('[QL:{}] There is no parent leaf {}. Trying quad level {} ...'.format(quad_level, parent_cell, parent_quad_level))
 
-                parent_complement_cells_gen = self.traverse_quadtree_upwards(parent_cell, parent_cell[:-1])
-                pcc = next(parent_complement_cells_gen)
+                # go upwards one level
+                parent_complement_leafs_gen = self.traverse_quadtree_upwards(parent_cell, parent_cell[:-1])
+                pcc = next(parent_complement_leafs_gen)
                 try:
-                    next(parent_complement_cells_gen)
+                    next(parent_complement_leafs_gen)
                 except StopIteration:
                     pass # all good
-                parent_complement_cells = pcc[1]
+                parent_complement_leafs = pcc[1]
 
-                self.upsert_quad_leafs(parent_complement_cells, leafs, **argv)
+                # We have to check that the 3 complement cells in the parent quad level we are about to recurse into do not overlap any existing tile. We reduce the 'parent complement leafs' list accordingly.
+                parent_complement_leafs_db = self.db_leafs(parent_complement_leafs)
+                if parent_complement_leafs_db is not False:
+                    parent_complement_leafs_nonconflicting = [c for c in parent_complement_leafs if len(self.search_pattern_in_db_cells(
+                        re.compile(regex_str.format(cell_id=c)), parent_complement_leafs_db.keys())) == 0]
+                    self.log.debug('[QL:{}] Reduced parent complement leafs {} to {}.'.format(quad_level, parent_complement_leafs, parent_complement_leafs_nonconflicting))
+                    parent_complement_leafs = parent_complement_leafs_nonconflicting
+
+                self.log.debug('[QL:{}] ... Recurse upwards one level to {} with complementary leafs {}.'.format(quad_level, quad_level-1, parent_complement_leafs))
+                argv['quad_level'] = parent_quad_level
+                self.upsert_quad_leafs(parent_complement_leafs, leafs, **argv)
 
             elif len(parent_cell_db) == 1:
                 # we have to remove this leaf and insert subordinate quad key cells
-                self.log.debug('[QZ:{}] Found a parent leaf {}'.format(quad_level, parent_cell)) #122101231 trace_leafs[next_leaf_above]
+                self.log.debug('[QL:{}] Found parent leaf {}.'.format(quad_level, parent_cell)) #122101231 trace_leafs[next_leaf_above]
+                # get all quad tiles up to one level above
                 caq = self.complement_and_above_quadrants(parent_cell, parent_cell[:-1])
                 # these are the complement leafs for the above node we have to add
                 complement_leafs = [l for l in caq[0] if l != parent_cell]
 
                 # here we have to check whether the complement cells conflict with the DB
                 complement_leafs_db = self.db_leafs(complement_leafs)
-                self.log.debug('[QZ:{}] Found {} conflicting DB complement leafs'.format(quad_level, len(complement_leafs_db)))
+                self.log.debug('[QL:{}] Found {} complementary leafs within next up level tile {}. Sorting out those not conflicting with the DB ...'.format(quad_level, len(complement_leafs_db), parent_cell[:-1]))
 
-                regex_str = '^{cell_id}[0-3]*$'
                 # we search for those complement cells that do not regex match with the data base cells
                 # thus we only take those cells where the length of that regex search list is zero
                 complement_leafs_nonconflicting = [c for c in complement_leafs if len(self.search_pattern_in_db_cells(
                     re.compile(regex_str.format(cell_id=c)), complement_leafs_db.keys())) == 0]
-                self.log.debug('[QZ:{}] Insert new leafs {}'.format(quad_level, complement_leafs_nonconflicting))
 
-                leafs['upsert'] += complement_leafs_nonconflicting
-                self.log.debug('[QZ:{}] Remove leaf'.format(quad_level, parent_cell, parent_cell_db[parent_cell][-1]))
+                if len(complement_leafs_nonconflicting) == 0:
+                    # error
+                    self.log.warning('[QL:{}] No complementary leafs to insert.'.format(quad_level))
+                else:
+                    self.log.debug('[QL:{}] ... insert new complementary leafs {}.'.format(quad_level, complement_leafs_nonconflicting))
+                    leafs['upsert'] += complement_leafs_nonconflicting
+
+                self.log.debug('[QL:{}] Remove leaf {}.'.format(quad_level, parent_cell))
                 leafs['remove'] += [(parent_cell, parent_cell_db[parent_cell][-1])] # tuple of cell quad key & compl
             else:
-                self.log.debug('[QZ:{}] Error {} leafs. There cannot be more than 1 leaf.'.format(quad_level, len(parent_cell_db)))
-                raise ValueError('[QZ:{}] Parent cell {} has {} DB entries: {}.'.format(quad_level, parent_cell, len(parent_cell_db), parent_cell_db))
-        else:
+                self.log.error('[QL:{}] Error {} leafs. There cannot be more than 1 leaf.'.format(quad_level, len(parent_cell_db)))
+                raise ValueError('[QL:{}] Parent node {} has {} DB entries: {}.'.format(quad_level, parent_cell, len(parent_cell_db), parent_cell_db))
+        else: # we found any quad_start leafs in the DB
             quad_start = argv.get('quad_start', None)
-            self.log.debug('[QZ:{}] Quad start {} Found {} leafs'.format(quad_level, quad_start, len(quad_start_leafs_db)))
-            # since there are no nodes in the DB (only leafs), if quad_start is found it must be a leaf
-            if '{}'.format(quad_start) in quad_start_leafs_db:
-                self.log.debug('[QZ:{}] {} is a leaf'.format(quad_level, quad_start))
-                # we are a leaf, so we can change attributes
-                leafs['upsert'] += [quad_start]
+            parent_cell = quad_start_leafs[0][:-1] if len(quad_start_leafs)>0 else -1
+            self.log.debug('[QL:{}] Parent node {}: Found {} leafs'.format(quad_level, parent_cell, len(quad_start_leafs_db)))
+
+            if parent_cell == -1:
+                self.log.warning('[QL:{}] There is no parent cell to complementary nodes {}.'.format(quad_level, quad_start_leafs))
             else:
-                regex_str = '^{cell_id}[0-3]*$'
-                child_cells = self.search_pattern_in_db_cells(re.compile(
-                    regex_str.format(cell_id=quad_start)), quad_start_leafs_db.keys())
-                self.log.debug('[QZ:{}] {} is a node. Childs {}'.format(quad_level, quad_start, child_cells))
-                # we are a node, so there should not be any leafs or/and more nodes below quad_start
-                if len(child_cells) == 0:
-                    # this basically means some error happened before and this quadkey used to be a leaf that is now missing
-                    # we just add this cell again, because it is missing, which is wrong
+
+                if len(quad_start_leafs_db) != 4: # true for 18?
+                    # if there are leafs there should be 4,
+                    # TODO is this correct?
+                    self.log.warning('[QL:{}] There should be 4 leafs, not {}.'.format(quad_level, len(quad_start_leafs_db)))
+
+                # since there are no nodes in the DB (only leafs), if quad_start is found it must be a leaf
+                if '{}'.format(quad_start) in quad_start_leafs_db:
+                    self.log.debug('[QL:{}] {} is a leaf. Changing its completeness.'.format(quad_level, quad_start))
+                    # we are a leaf, so we can change attributes
                     leafs['upsert'] += [quad_start]
                 else:
-                    pass
-                    # TODO
+                    # look below quad_start for leafs in the DB
+                    regex_str = '^{cell_id}[0-3]*$'
+                    child_cells = self.search_pattern_in_db_cells(re.compile(
+                        regex_str.format(cell_id=quad_start)), quad_start_leafs_db.keys())
 
-                #
+                    # we are a node, so there should not be any leafs or/and more nodes below quad_start
+                    if len(child_cells) == 0:
+                        # this basically means some error happened before and this quadkey used to be a leaf that is now missing
+                        # we just add this cell again, because it is missing, which is wrong and there a no cells below quad_start
+                        self.log.warning('[QL:{}] Stopped at {}. {} is a node with no leafs. Adding it again.'.format(quad_level, parent_cell, quad_start))
+                        if not quad_start in leafs['upsert']:
+                            leafs['upsert'] += [quad_start]
+                    else:
+                        self.log.warning('[QL:{}] Stopped at {}. {} is a node. Childs {}'.format(quad_level, parent_cell, quad_start, child_cells))
+
+                        # TODO see if we ever land here. Then we have to deal with the leafs below quad_start before adding quad_start itself
+
+            # lastly check if there's an overlapping tile
+            db_params = self.fiddle_db_entry_tuplet(quad_start, srid, None)
+            sql = """
+                SELECT cell_id, completeness FROM cmpl_grid WHERE ST_Contains(geom, ST_Centroid(ST_MakeEnvelope({},{},{},{}, {})))
+            """.format(*db_params[1:-1])
+            db_poss_conf_leafs = self.connect_obm_cmpl(sql)
+            db_poss_conf_leafs = [l for l in db_poss_conf_leafs if l[0] != quad_start]
+            if len(db_poss_conf_leafs) > 0:
+                # error TODO
+                self.log.error('[QL:{}] Error {} overlapp {}'.format(quad_level, db_poss_conf_leafs, quad_start))
+                for leaf in db_poss_conf_leafs:
+                    if leaf not in leafs['remove']:
+                        self.log.warning('[QL:{}] Removing leaf {}.'.format(quad_level, leaf[0]))
+                        leafs['remove'] += [(leaf[0], leaf[1])]
+
+
+        # self.log.info('>>> [QL:{}] Returning data changes: {}'.format(quad_level, leafs))
         return leafs
 
 
@@ -482,7 +540,7 @@ class QuadGridBuilder:
         else:
             leafs = {}
             for db_qc in db_result:
-                bounds = self.tile_bounds(db_qc[0])
+                # bounds = self.tile_bounds(db_qc[0])
                 leafs[db_qc[0]] = self.fiddle_db_entry_tuplet(db_qc[0], srid, db_qc[2])
             return leafs
 
@@ -615,6 +673,7 @@ class QuadGridBuilder:
         COMMIT;
         """.format(table_name, upsert_template)
         sql = sql_beg + sql_del + sql_ups
+        # self.log.debug('[DB] Upsert: {}'.format(upsert))
 
         db_result = self.connect_obm_cmpl(sql, upsert)
         return db_result
