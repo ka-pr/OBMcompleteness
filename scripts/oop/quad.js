@@ -228,6 +228,7 @@ Quad.prototype._bind_events = function()
       }
 
       this.draw_grid();
+      this._legend_highlight();
     }.bind(this))
     .on('boxzoomend', function(e) {
       // console.log('boxzoomend', e);
@@ -432,10 +433,11 @@ Quad.prototype._feature_reset_highlight = function(grid, e)
 
 Quad.prototype._legend_highlight = function(completeness, id)
 {
+  let zoom = this._map_object.map().getZoom();
   if (typeof completeness === 'undefined') {
     // reset
     $('.'+this._application.ID_PREFIX+'_infolegend_entry').parent().css({"border-color":'#00000000', "border-style": 'solid'});
-    $('#'+this._application.ID_PREFIX+'_infolegend_heading').html(-1);
+    $('#'+this._application.ID_PREFIX+'_infolegend_heading').html(zoom);
   } else {
     // highlight appropriately
     let color = this.ERROR[-1].color;

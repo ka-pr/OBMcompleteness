@@ -219,6 +219,7 @@ Application.prototype.map_init = function(suffix = "")
   } else {
     this._map_object._quad.draw_grid(null);
   }
+  this._map_object._quad._legend_highlight();
 
 
   this._obm = L.tileLayer('http://a-tiles.obm.gfz.pm/tiles/all-buildings/{z}/{x}/{y}.png&tilesize={tileSize}&{test}',{
@@ -238,7 +239,7 @@ Application.prototype.map_init = function(suffix = "")
     redrawint += 1;
   };
   this._quad_cmpl = L.tileLayer('http://rs40/tiles/obm-completeness/{z}/{x}/{y}.png?tilesize={tileSize}&{randint}',{
-	randint: getRedrawInteger,
+	randint: 42, //getRedrawInteger,
 	// maxzoom:21,
 	tileSize: 256,
   });
@@ -911,6 +912,7 @@ Application.prototype._process_layer = function(layer_description, feature_name,
     this._legend_object = new Legend(this._style_object, this.ID_PREFIX);
     /* add the legend to the map*/
     this._legend_object.legend().addTo(this._map_object.map());
+    this._map_object._quad._legend_highlight();
     /* prevent map interaction through the legend widget */
     this._stop_propagation('legend');
     /* connect mouse events between the legend and the map */
