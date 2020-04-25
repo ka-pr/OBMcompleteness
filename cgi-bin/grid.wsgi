@@ -162,19 +162,23 @@ class ApplicationMiddleware:
             return start_response(status, headers, *args)
 
         response, data = self.__application(environ, _start_response, request_json = d)
-        # whatever we remove is supposed be at a lower level and covers everything in upsert anyway
-        touched_quads = data['upsert'] if len(data['remove']) == 0 else [r[0] for r in data['remove']]
-        # before return write to file
-        wsgi_script_root = os.path.dirname(os.path.realpath(__file__)) # ~/OBMcompleteness/cgi-bin
-        render_list = os.path.join(wsgi_script_root, '..', 'data', 'renderd', 'expire.list')
-        with open(render_list, "a+") as lst:
-            old_list = lst.read()
-            #self.log.debug('>>> old_list {}'.format(old_list))
-            touched_quads = [self.quadkey2GoogleTMS(q) for q in touched_quads if self.quadkey2GoogleTMS(q) not in old_list]
-            #self.log.debug('>>> render_list append {}'.format(touched_quads))
-            if len(touched_quads) > 0:
-                np.savetxt(lst, touched_quads, delimiter=",", fmt='%s') #, header=header)
-        self.log.debug("response {}".format(touched_quads) )
+        
+        if d['action'] == 'quad_set':
+            # whatever we remove is supposed be at a lower level and covers everything in upsert anyway
+            #self.log.debug('>>> data {}'.format(data))
+            touched_quads = data['upsert'] if len(data['remove']) == 0 else [r[0] for r in data['remove']]
+            # before return write to file
+            wsgi_script_root = os.path.dirname(os.path.realpath(__file__)) # ~/OBMcompleteness/cgi-bin
+            render_list = os.path.join(wsgi_script_root, '..', 'data', 'renderd', 'expire.list')
+            with open(render_list, "a+") as lst:
+                old_list = lst.read()
+                #self.log.debug('>>> old_list {}'.format(old_list))
+                touched_quads = [self.quadkey2GoogleTMS(q) for q in touched_quads if self.quadkey2GoogleTMS(q) not in old_list]
+                #self.log.debug('>>> render_list append {}'.format(touched_quads))
+                if len(touched_quads) > 0:
+                    np.savetxt(lst, touched_quads, delimiter=",", fmt='%s') #, header=header)
+            #self.log.debug("response {} {}".format(response, touched_quads) )
+        
         return response
 
     def quadkey2GoogleTMS(self, quadkey):
