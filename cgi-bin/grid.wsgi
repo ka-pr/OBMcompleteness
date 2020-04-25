@@ -7,11 +7,14 @@ import logging, json
 from cgi import escape
 import StringIO as io
 import os, struct
+import numpy as np
 import psycopg2, re
 from pygeotile.tile import Tile
 from pygeotile.point import Point
 from shapely import wkb
 from shapely.geometry import box, shape, mapping
+
+from multiprocessing import pool, Queue, Lock
 
 # BINFILE = os.path.join('/home/prehn/git/completeness', 'bin/cmpltnss.bin')
 BINFILE = os.path.join('/home/prehn/git/OBMcompleteness', 'bin/cmpltnss.bin')
@@ -22,11 +25,11 @@ srid = 4326
 lose_no_information_cmpl = [0, 4, 5, 6]
 other_quadrants  = {'0':['1','2','3'], '1':['0','2','3'], '2':['0','1','3'], '3':['0','1','2']}
 
-def application(environ, start_response):
+
+def application(environ, start_response, **argv):
     logger = logging.getLogger(__name__)
     if not logger.handlers:
         logger.setLevel(logging.DEBUG)
-        # formatter = logging.Formatter('%(asctime)s: %(levelname)-8s <[%(filename)s]> ...: %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
         formatter = logging.Formatter('<[%(levelname)s: %(filename)s]> ...: %(message)s')
         consoleHandler = logging.StreamHandler()
         consoleHandler.setFormatter(formatter)
@@ -39,112 +42,147 @@ def application(environ, start_response):
 
     cell_size = 10.0/60.0**2 # in degree, 0.002777777777777778
 
-    # the environment variable CONTENT_LENGTH may be empty or missing
-    try:
-        request_body_size = int(environ.get('CONTENT_LENGTH', 0))
-    except (ValueError):
-        request_body_size = 0
-    logger.debug('Request body size: {}'.format(request_body_size))
+    d = argv.get('request_json', [])
+    upsert_and_remove_data = {}
 
-    # When the method is POST the variable will be sent
-    # in the HTTP request body which is passed by the WSGI server
-    # in the file like wsgi.input environment variable.
-    request_body = environ['wsgi.input'].read(request_body_size)
-    d = json.loads(request_body) #parse_qs(request_body)
-    action = d['action'] # set or get
-    response = {}
-
-    if action == 'set':
-        logger.debug('Request body content: {}'.format(','.join('id [{}]: {:03b}'.format(k,v) for k,v in d['cells'].iteritems())))
-
-        logger.debug('Working in directory: {}'.format(os.path.dirname(__file__)))
-        # entries = [entry for entry in d.get('entries', [''])]
-        # positions = [pos for pos in d.get('positions', ['-1'])]
-        data = {}
-        for k, v in d['cells'].iteritems():
-            data[escape('{}'.format(k))] = v
-
-        # logger.debug('Positions: {}, entries: {}'. format(positions, entries))
-
-        # binfile = os.path.join(os.path.dirname(__file__), '../bin/helloworld.bin')
-        binary_writer = BinaryWriter(logger=logger)
-        binary_writer.write_binary(BINFILE, data)
-
-        status = b'200 OK'
-        # response = json.dumps({'entries': entries, 'positions': positions})
-        response = json.dumps(data)
-        response_headers = [('Content-type', 'application/json'),
-                            ('Content-Length', str(len(response)))
-        ]
-        start_response(status, response_headers)
-        return response
-
-    elif action == 'get':
-        binary_reader = BinaryReader(cellsize=cell_size, logger=logger)
-        data = binary_reader.read_binary(BINFILE, d['cells']) # completeness matrix
-
-        status = b'200 OK'
-        logger.debug('Done. Status {}'.format(status))
-        response = json.dumps(data)
-        response_headers = [('Content-type', 'text/plain'),
-                            ('Content-Disposition', 'attachment; filename="my_grid.txt"'),
-                            ('Content-Length', str(len(response))),
-        ]
-
-        f = io.StringIO(response)
-
-        start_response(status, response_headers)
-
-        if 'wsgi.file_wrapper' in environ:
-            logger.debug('... 1')
-            return environ['wsgi.file_wrapper'](f, 1024)
-        else:
-            logger.debug('... 2')
-            return iter(lambda: f.read(4096), '')
-
-    elif action == 'quad_get':
-        bbox = d['bbox']
-        quad_grid_builder = QuadGridBuilder(logger=logger)
-        quad_grid = quad_grid_builder.quadgrid_from_bbox(bbox)
-        logger.debug('Quad grids for BBOX {}'.format(bbox))
-
-        status = b'200 OK'
-        response = json.dumps(quad_grid)
-        response_headers = [('Content-type', 'application/json'),
-                            ('Content-Length', str(len(response)))
-        ]
-        start_response(status, response_headers)
-        return response
-
-    elif action == 'quad_set':
-        data = d['data']
-        len_data = len(data)
-        quad_grid_builder = QuadGridBuilder(logger=logger)
-        logger.debug('Received new tile data {}.'.format(data))
-
-        for cnt, qk in enumerate(data, 1):
-            cmpl = data[qk]
-            quad_start_leafs = quad_grid_builder.same_quadrant_leafs(qk)
-            logger.debug('[{}/{}: {}.QL:{}] START assembling data changes with: new completeness {}, complementary leafs {}'.format(cnt, len_data, qk, len(qk), cmpl, quad_start_leafs))
-            upsert_and_remove_data = quad_grid_builder.upsert_quad_leafs(quad_start_leafs, quad_start=qk)
-            logger.debug('[{}/{}] Executing changes to the DB: {}.'.format(cnt, len_data, upsert_and_remove_data))
-            resp = quad_grid_builder.update_database(upsert_and_remove_data, qk, cmpl)
-            logger.debug('[{}/{}] DONE {}.'.format(cnt, len_data, resp))
-
-
-
-        status = b'200 OK'
-        response = json.dumps(data)
-        response_headers = [('Content-type', 'application/json'),
-                            ('Content-Length', str(len(response)))
-        ]
-        start_response(status, response_headers)
-        return response
+    if len(d) == 0:
+        logger.error('[ERROR] Request object {} is empty.'.format(d))
+        data = [-2]
 
     else:
-        logger.error('Don\'t know what to do with action [{}]'.format(action))
+        action = d['action'] # set or get
+        response = {}
+
+        if action == 'set':
+            logger.debug('Request body content: {}'.format(','.join('id [{}]: {:03b}'.format(k,v) for k,v in d['cells'].iteritems())))
+
+            logger.debug('Working in directory: {}'.format(os.path.dirname(__file__)))
+            # entries = [entry for entry in d.get('entries', [''])]
+            # positions = [pos for pos in d.get('positions', ['-1'])]
+            data = {}
+            for k, v in d['cells'].iteritems():
+                data[escape('{}'.format(k))] = v
+
+            # logger.debug('Positions: {}, entries: {}'. format(positions, entries))
+
+            # binfile = os.path.join(os.path.dirname(__file__), '../bin/helloworld.bin')
+            binary_writer = BinaryWriter(logger=logger)
+            binary_writer.write_binary(BINFILE, data)
 
 
+
+        elif action == 'get':
+            binary_reader = BinaryReader(cellsize=cell_size, logger=logger)
+            data = binary_reader.read_binary(BINFILE, d['cells']) # completeness matrix
+
+            status = b'200 OK'
+            logger.debug('Done. Status {}'.format(status))
+            response = json.dumps(data)
+            response_headers = [('Content-type', 'text/plain'),
+                                ('Content-Disposition', 'attachment; filename="my_grid.txt"'),
+                                ('Content-Length', str(len(response))),
+            ]
+
+            f = io.StringIO(response)
+
+            start_response(status, response_headers)
+
+            if 'wsgi.file_wrapper' in environ:
+                logger.debug('... 1')
+                return environ['wsgi.file_wrapper'](f, 1024)
+            else:
+                logger.debug('... 2')
+                return iter(lambda: f.read(4096), '')
+
+        elif action == 'quad_get':
+            bbox = d['bbox']
+            quad_grid_builder = QuadGridBuilder(logger=logger)
+            quad_grid = quad_grid_builder.quadgrid_from_bbox(bbox)
+            logger.debug('Quad grids for BBOX {}'.format(bbox))
+
+            data = quad_grid
+
+
+        elif action == 'quad_set':
+            data = d['data']
+            len_data = len(data)
+            quad_grid_builder = QuadGridBuilder(logger=logger)
+            logger.debug('Received new tile data {}.'.format(data))
+
+            for cnt, qk in enumerate(data, 1):
+                cmpl = data[qk]
+                quad_start_leafs = quad_grid_builder.same_quadrant_leafs(qk)
+                logger.debug('[{}/{}: {}.QL:{}] START assembling data changes with: new completeness {}, complementary leafs {}'.format(cnt, len_data, qk, len(qk), cmpl, quad_start_leafs))
+                upsert_and_remove_data = quad_grid_builder.upsert_quad_leafs(quad_start_leafs, quad_start=qk)
+                logger.debug('[{}/{}] Executing changes to the DB: {}.'.format(cnt, len_data, upsert_and_remove_data))
+                resp = quad_grid_builder.update_database(upsert_and_remove_data, qk, cmpl)
+                logger.debug('[{}/{}] DONE {}.'.format(cnt, len_data, resp))
+
+
+        else:
+            logger.error('Don\'t know what to do with action [{}]'.format(action))
+            data = [-1]
+
+    status = b'200 OK'
+    response = json.dumps(data)
+    response_headers = [('Content-type', 'application/json'),
+                        ('Content-Length', str(len(response)))
+    ]
+    start_response(status, response_headers)
+    return response, upsert_and_remove_data
+
+
+
+class ApplicationMiddleware:
+
+    """  """
+    def __init__(self, application):
+        self.__application = application
+
+    """  """
+    def __call__(self, environ, start_response):
+        self.log = logging.getLogger(__name__)
+
+        # the environment variable CONTENT_LENGTH may be empty or missing
+        try:
+            request_body_size = int(environ.get('CONTENT_LENGTH', 0))
+        except (ValueError):
+            request_body_size = 0
+
+        # When the method is POST the variable will be sent
+        # in the HTTP request body which is passed by the WSGI server
+        # in the file like wsgi.input environment variable.
+        request_body = environ['wsgi.input'].read(request_body_size)
+
+        d = json.loads(request_body) #parse_qs(request_body)
+
+        self.log.debug('[REQUEST] Size {}: {}'.format(request_body_size, d['action']))
+
+        def _start_response(status, headers, *args):
+            return start_response(status, headers, *args)
+
+        response, data = self.__application(environ, _start_response, request_json = d)
+        # whatever we remove is supposed be at a lower level and covers everything in upsert anyway
+        touched_quads = data['upsert'] if len(data['remove']) == 0 else [r[0] for r in data['remove']]
+        # before return write to file
+        wsgi_script_root = os.path.dirname(os.path.realpath(__file__)) # ~/OBMcompleteness/cgi-bin
+        render_list = os.path.join(wsgi_script_root, '..', 'data', 'renderd', 'expire.list')
+        with open(render_list, "a+") as lst:
+            old_list = lst.read()
+            #self.log.debug('>>> old_list {}'.format(old_list))
+            touched_quads = [self.quadkey2GoogleTMS(q) for q in touched_quads if self.quadkey2GoogleTMS(q) not in old_list]
+            #self.log.debug('>>> render_list append {}'.format(touched_quads))
+            if len(touched_quads) > 0:
+                np.savetxt(lst, touched_quads, delimiter=",", fmt='%s') #, header=header)
+        self.log.debug("response {}".format(touched_quads) )
+        return response
+
+    def quadkey2GoogleTMS(self, quadkey):
+        qk = '{}'.format(quadkey)
+        tile = Tile.from_quad_tree(qk)
+        return '{}/{}/{}'.format(len(qk), *tile.google)
+
+application = ApplicationMiddleware(application)
 
 
 class BinaryWriter:
@@ -235,6 +273,7 @@ class BinaryReader:
 
         # self.log.debug('return matrix', ret_matrix)
         return poly # ret_matrix
+
 
 
 

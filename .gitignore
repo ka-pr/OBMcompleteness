@@ -2,3 +2,4 @@ bin/
 TAGS
 *.pyc
 .tern-port
+.vs

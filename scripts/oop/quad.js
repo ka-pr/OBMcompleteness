@@ -31,13 +31,13 @@ function Quad(application)
 
   this._rect_options = {color: '#AAAAAA', fillOpacity: .2, weight: 1, onEachFeature: this._on_each_feature.bind(this)};
   this._styling = {
-    0b000: {var:'UNKNOWN', name: 'Unknown', value:0b000, color:'#aaaaaa', opacity:.4, fillColor: '#777777', fillOpacity:.4}, // unknown, grey
+    0b000: {var:'UNKNOWN', name: 'Unknown', value:0b000, color:'#CCCCCC', opacity:.4, fillColor: '#FFFFFF', fillOpacity:.4}, // unknown, grey
     0b001: {var:'COMPLETE', name: 'Complete', value:0b001, color:'#80ff00', opacity:.4, fillColor: '#12a813', fillOpacity:.2}, // complete, green
     0b010: {var:'ALMOST_COMPLETE', name: 'Almost complete', value:0b010, color:'#ff8000', opacity:.6, fillColor: '#ffff00', fillOpacity:.4}, // almost complete, orange
     0b011: {var:'INCOMPLETE', name: 'Incomplete', value:0b011, color:'#ff808c', opacity:.4, fillColor: '#e4808c', fillOpacity:.2}, // incomplete, red
-    0b100: {var:'UNDECIDABLE', name: 'Undecidable', value:0b100, color:'#ff8000', opacity:.6, fillColor: '#ffffff', fillOpacity:.4}, // undecidable, orange
+    0b100: {var:'UNDECIDABLE', name: 'Undecidable', value:0b100, color:'#FFFFFF', opacity:.6, fillColor: '#BBBBBB', fillOpacity:.4}, // undecidable, orange
     0b101: {var:'H2O', name: 'Irrelevant (Water)', value:0b101, color:'#aaaaaa', opacity:.0, fillColor: '#6a5acd', fillOpacity:.0}, // H2O, slate blue
-    0b110: {var:'EMPTY', name: 'Complete (empty)', value:0b110,  color:'#ff763a', opacity:.4, fillColor: '#f4863a', fillOpacity:.2}, // empty
+    0b110: {var:'EMPTY', name: 'Complete (empty)', value:0b110,  color:'#AAAAAA', opacity:.4, fillColor: '#777777', fillOpacity:.2}, // empty
   };
 
   this._feature_style_def = {};
