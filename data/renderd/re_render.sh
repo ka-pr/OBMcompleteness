@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 logfile="git/OBMcompleteness/data/renderd/log/re_render.log"
 errfile="git/OBMcompleteness/data/renderd/log/re_render.ror"
 exec 3>&1 4>&2
@@ -14,7 +14,7 @@ fi
 expire_list="$1"
 lines=$(cat $expire_list | wc -l)
 if [ "$lines" -eq "0" ]; then
-	echo "[ $time ] Warning. Nothin to render." | tee -a $errfile >&3"
+	echo "[ $time ] Warning. Nothing to render." | tee -a $errfile >&3
 	exit;
 fi
 echo "[ $time ] rendering $lines cells." | tee -a $logfile >&3
@@ -30,4 +30,3 @@ if [ "$success" -eq "0" ]; then
 else
 	echo "[ $time ] Error executing render_expired" $success | tee -a $errfile >&3
 fi
-
