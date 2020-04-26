@@ -1,6 +1,6 @@
-#!/bin/sh
-logfile="log/re_render.log"
-errfile="log/re_render.ror"
+#!/bin/bash
+logfile="git/OBMcompleteness/data/renderd/log/re_render.log"
+errfile="git/OBMcompleteness/data/renderd/log/re_render.ror"
 exec 3>&1 4>&2
 trap 'exec 2>&4 1>&3' 0 1 2 3
 exec 1>> $logfile 2>>$errfile
