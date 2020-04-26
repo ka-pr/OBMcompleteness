@@ -1,20 +1,22 @@
 #!/bin/sh
-if [ $# -eq "0" ]; then
-	exit;
-fi
 logfile="log/re_render.log"
 errfile="log/re_render.ror"
 exec 3>&1 4>&2
 trap 'exec 2>&4 1>&3' 0 1 2 3
 exec 1>> $logfile 2>>$errfile
+time=$(date -u)
+
+if [ $# -eq "0" ]; then
+	echo "[ $time ] Error executing render_expired. No list." | tee -a $errfile >&3
+	exit;
+fi
 
 expire_list="$1"
 lines=$(cat $expire_list | wc -l)
 if [ "$lines" -eq "0" ]; then
-	#echo "nothing to render."
+	echo "[ $time ] Warning. Nothin to render." | tee -a $errfile >&3"
 	exit;
 fi
-time=$(date -u)
 echo "[ $time ] rendering $lines cells." | tee -a $logfile >&3
 
 min_zoom=0

@@ -268,7 +268,6 @@ Quad.prototype._ajax_get_completeness = function(bbox)
 
 
 
-
 Quad.prototype._ajax_set_completeness = function(_data)
 {
   /* define an action type so we can distinguish between set and get */

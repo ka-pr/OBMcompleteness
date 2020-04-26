@@ -1,5 +1,8 @@
 bin/
+log/
 TAGS
+expire.list
 *.pyc
 .tern-port
 .vs
+.swp
