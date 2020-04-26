@@ -1,4 +1,6 @@
 #!/bin/sh
+PATH=$PATH:/usr/local/bin
+export PATH
 logfile="git/OBMcompleteness/data/renderd/log/re_render.log"
 errfile="git/OBMcompleteness/data/renderd/log/re_render.ror"
 exec 3>&1 4>&2
