@@ -317,28 +317,35 @@ class QuadGridBuilder:
 
 
     def quadgrid_from_bbox(self, bbox):
+        #sql = """
+        #    SELECT cell_id, completeness, geom FROM cmpl_grid WHERE cell_id ~* CONCAT('^', '%s', '[0-3]*$');
+        #"""
         sql = """
-            SELECT cell_id, completeness, geom FROM cmpl_grid WHERE cell_id ~* CONCAT('^', '%s', '[0-3]*$');
+            SELECT cell_id, completeness, geom FROM cmpl_grid WHERE ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s, %s));
         """
         bbox_sw_qk = self.latlon2quadkey(bbox[1], bbox[0], 18) # 122100231210313321
         bbox_ne_qk = self.latlon2quadkey(bbox[3], bbox[2], 18) # 122100231210313321
 
         common_qk = self.common_parent_quadkey(int(bbox_sw_qk), int(bbox_ne_qk))
-        self.log.debug('[BBOX] common qk {} of ({}, {})'.format(common_qk, bbox_sw_qk, bbox_ne_qk))
-        db_results = self.connect_obm_cmpl(sql, [(common_qk,)])
-        self.log.debug('[BBOX] Getting {} tiles below common qk {}'.format(len(db_results), common_qk))
+        self.log.debug('[BBOX] common qk {} of {}'.format(common_qk, [tuple(bbox+[4326])]))
+        #db_results = self.connect_obm_cmpl(sql, [(common_qk,)])
+
+        db_results_bb = self.connect_obm_cmpl(sql, [tuple(bbox+[4326])])
+        self.log.debug('[BBOX] Getting {} tiles below common qk {}'.format(len(db_results_bb), common_qk))
 
         bbox_shp = shape(box(*bbox))
-        db_results_bb = [r for r in db_results if wkb.loads(r[2], hex=True).intersects(bbox_shp)]
+        #db_results_bb = [r for r in db_results if wkb.loads(r[2], hex=True).intersects(bbox_shp)]
+
 
         cmpls_db = {} # dict of quadkey => completeness
         for qk, cmpl, _ in db_results_bb:
             cmpls_db[qk] = cmpl
 
         level2go = 18 - len('{}'.format(common_qk))
-        grid = self.quad_level_down(common_qk, level2go)
+        grid = self.quad_level_down(common_qk, level2go, [], bbox_shp)
+        self.log.debug('[BBOX] Working with {} L18 tiles below parent QK {}'.format(len(grid), common_qk))
         grid_bb = [g for g in grid if g[1].intersects(bbox_shp)]
-        self.log.debug('[BBOX] Working with {} tiles in BBOX {}'.format(len(grid_bb), bbox))
+        self.log.debug('[BBOX] Working with {} L18 tiles in BBOX {}'.format(len(grid_bb), bbox))
 
         poly = {"type":"FeatureCollection",
                   "features":[]}
@@ -396,7 +403,6 @@ class QuadGridBuilder:
         return bb
 
 
-
     def common_parent_quadkey(self, q1, q2):
         while (q1 != q2):
             q1 /= 10
@@ -405,7 +411,7 @@ class QuadGridBuilder:
 
 
     """ go down the quad tree by number of levels """
-    def quad_level_down(self, qk, levels, grid = None):
+    def quad_level_down(self, qk, levels, grid = None, bbox_shp = None):
         if grid == None:
             grid = []
         if levels == 0: # return statement
@@ -415,7 +421,12 @@ class QuadGridBuilder:
         else:
             for q in range(0,4,1):
                 next_qk = '{}{}'.format(qk,q)
-                self.quad_level_down(next_qk, levels-1, grid)
+                valid_path = True
+                if bbox_shp is not None:
+                    valid_path = self.quadkey2bbox(next_qk).intersects(bbox_shp)
+                    
+                if valid_path == True:
+                    self.quad_level_down(next_qk, levels-1, grid, bbox_shp)
 
         return grid
 
