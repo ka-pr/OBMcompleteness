@@ -12,7 +12,10 @@ import psycopg2, re
 from pygeotile.tile import Tile
 from pygeotile.point import Point
 from shapely import wkb
-from shapely.geometry import box, shape, mapping
+from shapely.geometry import box, shape, mapping, MultiPolygon
+import pandas as pd
+import numpy as np
+import geopandas as gpd
 
 from multiprocessing import pool, Queue, Lock
 
@@ -118,7 +121,9 @@ def application(environ, start_response, **argv):
                 resp = quad_grid_builder.update_database(upsert_and_remove_data, qk, cmpl)
                 logger.debug('[{}/{}] DONE {}.'.format(cnt, len_data, resp))
 
-
+        elif action == 'quad_rerender':
+            # we don't want to rerender here. this needs to be done in the middleware class
+            data = [0]
         else:
             logger.error('Don\'t know what to do with action [{}]'.format(action))
             data = [-1]
@@ -162,24 +167,41 @@ class ApplicationMiddleware:
             return start_response(status, headers, *args)
 
         response, data = self.__application(environ, _start_response, request_json = d)
-        
+
         if d['action'] == 'quad_set':
             # whatever we remove is supposed be at a lower level and covers everything in upsert anyway
             #self.log.debug('>>> data {}'.format(data))
-            touched_quads = data['upsert'] if len(data['remove']) == 0 else [r[0] for r in data['remove']]
+
             # before return write to file
-            wsgi_script_root = os.path.dirname(os.path.realpath(__file__)) # ~/OBMcompleteness/cgi-bin
-            render_list = os.path.join(wsgi_script_root, '..', 'data', 'renderd', 'expire.list')
-            with open(render_list, "a+") as lst:
-                old_list = lst.read()
-                #self.log.debug('>>> old_list {}'.format(old_list))
-                touched_quads = [self.quadkey2GoogleTMS(q) for q in touched_quads if self.quadkey2GoogleTMS(q) not in old_list]
-                #self.log.debug('>>> render_list append {}'.format(touched_quads))
-                if len(touched_quads) > 0:
-                    np.savetxt(lst, touched_quads, delimiter=",", fmt='%s') #, header=header)
+            touched_quads = data['upsert'] if len(data['remove']) == 0 else [r[0] for r in data['remove']]
+            self.re_render(touched_quads)
             #self.log.debug("response {} {}".format(response, touched_quads) )
-        
+
+        elif d['action'] == 'quad_rerender':
+            bbox = d['bbox']
+            quad_grid_builder = QuadGridBuilder(logger=self.log)
+            bbox_sw_qk = quad_grid_builder.latlon2quadkey(bbox[1], bbox[0], 18)
+            bbox_ne_qk = quad_grid_builder.latlon2quadkey(bbox[3], bbox[2], 18)
+
+            common_qk = quad_grid_builder.common_parent_quadkey(int(bbox_sw_qk), int(bbox_ne_qk))
+            self.log.debug('[RENDER] Re-rendering qk {} of {}'.format(common_qk, [tuple(bbox+[4326])]))
+            self.re_render([common_qk])
+
+
         return response
+
+
+    def re_render(self, touched_quads):
+        wsgi_script_root = os.path.dirname(os.path.realpath(__file__)) # ~/OBMcompleteness/cgi-bin
+        render_list = os.path.join(wsgi_script_root, '..', 'data', 'renderd', 'expire.list')
+        with open(render_list, "a+") as lst:
+            old_list = lst.read()
+            #self.log.debug('>>> old_list {}'.format(old_list))
+            touched_quads = [self.quadkey2GoogleTMS(q) for q in touched_quads if self.quadkey2GoogleTMS(q) not in old_list]
+            #self.log.debug('>>> render_list append {}'.format(touched_quads))
+            if len(touched_quads) > 0:
+                np.savetxt(lst, touched_quads, delimiter=",", fmt='%s') #, header=header)
+
 
     def quadkey2GoogleTMS(self, quadkey):
         qk = '{}'.format(quadkey)
@@ -316,12 +338,140 @@ class QuadGridBuilder:
         self.log = kwargs.get('logger', logging.getLogger(__name__))
 
 
+    def _2d_geom_poly(self, geom_dict, coordinates_key='coordinates'):
+        _g = {}
+        for key in geom_dict:
+            if key == coordinates_key:
+                coords_np = np.array(geom_dict[key])
+                if len(coords_np.shape) == 3:
+                    _g[key] = geom_dict[key][0]
+            else :
+                _g[key] = geom_dict[key]
+        return _g
+
+    def _dictionary_subset(self, _dict, _set):
+        _d = {}
+        for _key in _dict:
+            if _key in _set:
+                _d[_key] = _dict[_key]
+        return _d
+
+    def _mapping(self, shp_geom):
+        try:
+            return mapping(shp_geom)
+        except Exception as e:
+            self.log.exception('Error mapping: %s'.format(e))
+
+
+    def quadgrid_GDF_to_geojson(self, gdf, geometry_col='geometry'):
+        """ shapely geometry -> geojson geometry (mapping) and maybe transform a 3d shp poly -> 2d """
+        # gdf['geometry'] = gdf['geometry'].apply(lambda x:_2d_geom_poly(mapping(x)))
+        _gdf = gdf.copy(deep=True)
+        _gdf['geometry'] = _gdf['geometry'].apply(lambda x: self._mapping(x))
+
+        """ GeoDataFrame -> json list of properties """
+        properties = json.loads(_gdf.to_json(orient='records'))
+
+        keys = [k for k in properties[0].keys() if k != geometry_col] # [u'geometry', u'completeness', u'id']
+        """ in geojson 'geometry' is not a member of properties """
+        features = [{"type":"Feature",
+                     "geometry": property[geometry_col],
+                     "properties":self._dictionary_subset(property,keys)} for property in properties]
+        poly = {"type":"FeatureCollection",
+                  "features":[]}
+        poly['features'] = features
+        return poly
+
+
+
+    """ BBOX """
+    def bbox_to_L18quadgrid_GDF(self, bbox):
+        """ @param bbox[west, south, east north]
+            returns a the bbox and an L18 quadgrid within the bbox as pandas GeoDataFrame
+        """
+        L18_quadgrid_gdf = self._quadgrid_DB_from_bbox(bbox, driver='GeoDataFrame') # shapely geometry
+        #print L18_quadgrid_gdf[L18_quadgrid_gdf['geometry'].iloc[0:].is_valid==False]
+        # L18_quadgrid_geojson = quadgrid_GDF_to_geojson(L18_quadgrid_gdf) # geojson geometry
+        #with open('test_quadgrid.json', 'w') as tf:
+        #    json.dump(L18_quadgrid_geojson, tf)
+        """ we need a GeoDataFrame of the bbox later on """
+        bbox_shp = shape(box(*bbox)) # a shapely shape
+        bbox_gdf = gpd.GeoDataFrame({'geometry':[bbox_shp]}) # a geopandas GDF
+        return bbox_gdf, L18_quadgrid_gdf
+
+
+    def _quadgrid_DB_from_bbox(self, bbox, driver='GeoDataFrame'):
+        """ returns a GeoDataFrame of ['geometry', 'id', 'completeness'] of L18 quadkey tiles in a BBOX
+            west, south, east north """
+        sql = """
+            SELECT cell_id, completeness, geom FROM cmpl_grid WHERE ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s, %s));
+        """
+        bbox_sw_qk = self.latlon2quadkey(bbox[1], bbox[0], 18) # 122100231210313321
+        bbox_ne_qk = self.latlon2quadkey(bbox[3], bbox[2], 18) # 122100231210313321
+
+        common_qk = self.common_parent_quadkey(int(bbox_sw_qk), int(bbox_ne_qk))
+        self.log.debug('[BBOX] common qk {} of {}'.format(common_qk, [tuple(bbox+[4326])]))
+
+        db_results_bb = self.connect_obm_cmpl(sql, [tuple(bbox+[4326])])
+        self.log.debug('[BBOX] Getting {} tiles below common qk {}'.format(len(db_results_bb), common_qk))
+
+        bbox_shp = shape(box(*bbox))
+
+        cmpls_db = {} # dict of quadkey => completeness
+        for qk, cmpl, _ in db_results_bb:
+            cmpls_db[qk] = cmpl
+
+        level2go = 18 - len('{}'.format(common_qk))
+        grid = self.quad_level_down(common_qk, level2go, [], bbox_shp)
+
+        """ make a list of L18 grid shapely polygons with quadkey value within the BBox """
+        L18_grid_bb_shp_polygons = [g for g in grid if g[1].intersects(bbox_shp)]
+        self.log.debug('[BBOX] Working with {} L18 tiles below common parent quadkey {} in BBOX {}'.format(len(L18_grid_bb_shp_polygons), common_qk, bbox))
+
+
+        """ make a list of any zoomlevel database shapely polygons with completeness value """
+        LX_db_bb_shp_polygons = []
+        for db_cell in db_results_bb:
+            shp_cell = wkb.loads(db_cell[2], hex=True)
+            shp_cell.completeness = db_cell[1]
+            LX_db_bb_shp_polygons += [shp_cell]
+
+        L18_grid_bb_df = pd.DataFrame({
+            'quadkey': [g[0] for g in L18_grid_bb_shp_polygons],
+            'geom': [g[1] for g in L18_grid_bb_shp_polygons], # cell square
+            'geometry': [g[1].centroid for g in L18_grid_bb_shp_polygons],
+            })
+        L18_grid_bb_gdf = gpd.GeoDataFrame(L18_grid_bb_df)
+
+        LX_grid_bb_df = pd.DataFrame({
+            'completeness': [g.completeness for g in LX_db_bb_shp_polygons],
+            'geometry': [g for g in LX_db_bb_shp_polygons],
+            })
+        LX_grid_bb_gdf = gpd.GeoDataFrame(LX_grid_bb_df)
+        """ find the completeness of L18 cells by intersection their centroid with LX DB cells """
+        L18vsLX_intersection = gpd.sjoin(L18_grid_bb_gdf, LX_grid_bb_gdf, how='left', op='intersects', lsuffix='L18',rsuffix='LX')
+
+        L18vsLX_intersection = L18vsLX_intersection[['geom', 'quadkey', 'completeness']]
+        L18vsLX_intersection.columns = ['geometry', 'id', 'completeness']
+
+        return L18vsLX_intersection
+
+
+
+    """ L18 tilelayer """
     def quadgrid_from_bbox(self, bbox):
+        """ Returns a geojson encoded quadkey tile layer for zoom level 18 """
+        bbox_gdf, L18_quadgrid_gdf = self.bbox_to_L18quadgrid_GDF(bbox)
+        L18_quadgrid_geojson = self.quadgrid_GDF_to_geojson(L18_quadgrid_gdf)
+        return L18_quadgrid_geojson
+
+
         #sql = """
         #    SELECT cell_id, completeness, geom FROM cmpl_grid WHERE cell_id ~* CONCAT('^', '%s', '[0-3]*$');
         #"""
         sql = """
             SELECT cell_id, completeness, geom FROM cmpl_grid WHERE ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s, %s));
+        """
         """
         bbox_sw_qk = self.latlon2quadkey(bbox[1], bbox[0], 18) # 122100231210313321
         bbox_ne_qk = self.latlon2quadkey(bbox[3], bbox[2], 18) # 122100231210313321
@@ -379,6 +529,7 @@ class QuadGridBuilder:
             poly['features'].append(feature)
 
         return poly
+        """
 
 
     def latlon2quadkey(self, lat, lon, zoom):
@@ -424,7 +575,7 @@ class QuadGridBuilder:
                 valid_path = True
                 if bbox_shp is not None:
                     valid_path = self.quadkey2bbox(next_qk).intersects(bbox_shp)
-                    
+
                 if valid_path == True:
                     self.quad_level_down(next_qk, levels-1, grid, bbox_shp)
 

@@ -239,6 +239,38 @@ Quad.prototype._bind_events = function()
 };
 
 
+Quad.prototype.rerender = function()
+{
+  let bbox = this._bbox_from_viewport();
+  this._ajax_rerender_tiles(bbox);
+};
+
+
+Quad.prototype._ajax_rerender_tiles = function(bbox)
+{
+  /* define an action type so we can distinguish between set and get */
+  let _d = {'action': 'quad_rerender',
+            'bbox': bbox};
+
+  let data = JSON.stringify(_d);
+  // console.log('Get completeness: JSON data string', data);
+
+  return $.ajax({
+    url: '/wsgi/grid.wsgi',
+    method: 'POST',
+    data: data,
+    dataType: 'json',
+    processData: 'false',
+    // responseType: 'arraybuffer',
+    success: function(response) {
+      // console.log('grid.wsgi post response', response);
+      return response;
+    },
+    error: function (xhr, ajaxOptions, thrownError) {
+      console.error('error fetching data', thrownError, xhr.status, xhr.responseText, xhr );
+    }
+  });
+};
 
 Quad.prototype._ajax_get_completeness = function(bbox)
 {

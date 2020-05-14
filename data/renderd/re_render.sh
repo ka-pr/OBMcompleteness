@@ -29,9 +29,9 @@ cat $expire_list | render_expired --map=completeness --min-zoom=$min_zoom
 
 success=$?
 if [ "$success" -eq "0" ]; then
-	echo "Success" $success | tee -a $logfile >&3
-	#truncate -s 0 $expire_list
-	sed -i -e 1,"${lines}d" $expire_list
+    echo "Success" $success | tee -a $logfile >&3
+	truncate -s 0 $expire_list
+	#sed -i -e 1,"${lines}d" $expire_list
 else
-	echo "[ $time ] Error executing render_expired" $success | tee -a $errfile >&3
+  echo "[ $time ] Error executing render_expired" $success | tee -a $errfile >&3
 fi

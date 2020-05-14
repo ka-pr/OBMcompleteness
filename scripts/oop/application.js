@@ -283,7 +283,10 @@ Application.prototype._add_to_map = function(layer, l_name)
   if (this.overlay_added(l_name)) {
     layer.addTo(this._map_object.map());
   }
-  this._map_object.layercontrol().addOverlay(layer, l_name);
+  if (l_name != 'Quad grid') {
+    this._map_object.layercontrol().addOverlay(layer, l_name);
+  }
+
   // fired when tile loading or loaded
   layer.on('loading', function (event) {
     // mapInstance.fireEvent('dataloading', event);
@@ -711,6 +714,9 @@ Application.prototype._download_json_popup = function(json)
 Application.prototype._behavior_and_events_init = function()
 {
   /** rest */
+  $('#'+this.ID_PREFIX+'_rerender').click(function(e) {
+    this.map_object()._quad.rerender();
+  }.bind(this));
   /* bootstrap dropdown plugin init */
   $('.dropdown-toggle').dropdown();
   /* FIXME - what does this do now? */
@@ -721,7 +727,7 @@ Application.prototype._behavior_and_events_init = function()
 
   /* the download button has been clicked
      add a temporary element to allow downloading the grid layer */
-  $('#'+this.ID_PREFIX+'_download_grid').click(function(e){
+  $('#'+this.ID_PREFIX+'_download_grid').click(function(e) {
     // southwest_lng, southwest_lat, northeast_lng, northeast_lat
     let bbox_str = $('#'+this.ID_PREFIX+'_bbox_coords').val();
 
