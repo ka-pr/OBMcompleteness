@@ -165,7 +165,7 @@ Application.prototype.map_init = function(suffix = "")
     if (this._obm) {
       this.remove_layer(this._obm);
     }
-    if (12 <= zoom) {
+    if (16 <= zoom) {
       this.add_layer(this._obm, 'OBM buildings');
     }
 
@@ -224,6 +224,7 @@ Application.prototype.map_init = function(suffix = "")
 
   this._obm = L.tileLayer('http://a-tiles.obm.gfz.pm/tiles/all-buildings/{z}/{x}/{y}.png&tilesize={tileSize}&{test}',{
 	maxzoom:18,
+    minzoom:15,
 	tileSize: 256,
 	test: 42, //function() { return Math.random(); }
   });

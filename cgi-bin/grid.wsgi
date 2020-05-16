@@ -100,7 +100,9 @@ def application(environ, start_response, **argv):
         elif action == 'quad_get':
             bbox = d['bbox']
             quad_grid_builder = QuadGridBuilder(logger=logger)
-            quad_grid = quad_grid_builder.quadgrid_from_bbox(bbox)
+            quad_grid = quad_grid_builder.quadgrid_from_bbox(bbox,
+                                                             ignore=[],
+                                                             intersect_shp=shape(box(*bbox)))
             logger.debug('Quad grids for BBOX {}'.format(bbox))
 
             data = quad_grid
@@ -367,29 +369,38 @@ class QuadGridBuilder:
         """ shapely geometry -> geojson geometry (mapping) and maybe transform a 3d shp poly -> 2d """
         # gdf['geometry'] = gdf['geometry'].apply(lambda x:_2d_geom_poly(mapping(x)))
         _gdf = gdf.copy(deep=True)
-        _gdf['geometry'] = _gdf['geometry'].apply(lambda x: self._mapping(x))
 
-        """ GeoDataFrame -> json list of properties """
-        properties = json.loads(_gdf.to_json(orient='records'))
+        if type(gdf) == pd.DataFrame:
+            # (Geo)DataFrame -> json list of properties
+            _gdf[geometry_col] = _gdf[geometry_col].apply(lambda x: self._mapping(x))
+            _gdf_json = _gdf.to_json(orient='records')
+            properties = json.loads(_gdf_json)
+            keys = [k for k in properties[0].keys() if k != geometry_col] # [u'geometry', u'completeness', u'id']
+            # in geojson 'geometry' is not a member of properties
+            features = [{"type":"Feature",
+                 "geometry": property[geometry_col],
+                 "properties":self._dictionary_subset(property,keys)} for property in properties]
 
-        keys = [k for k in properties[0].keys() if k != geometry_col] # [u'geometry', u'completeness', u'id']
-        """ in geojson 'geometry' is not a member of properties """
-        features = [{"type":"Feature",
-                     "geometry": property[geometry_col],
-                     "properties":self._dictionary_subset(property,keys)} for property in properties]
-        poly = {"type":"FeatureCollection",
+            poly = {"type":"FeatureCollection",
                   "features":[]}
-        poly['features'] = features
+            poly['features'] = features
+
+        elif type(gdf) == gpd.GeoDataFrame:
+            _gdf_json = _gdf.to_json()
+            poly = json.loads(_gdf_json)
+        else:
+            raise ValueError('{} is neither a DataFrame nor a GeoDataFrame.')
+
         return poly
 
 
 
     """ BBOX """
-    def bbox_to_L18quadgrid_GDF(self, bbox):
+    def bbox_to_L18quadgrid_GDF(self, bbox, **kwargs):
         """ @param bbox[west, south, east north]
             returns a the bbox and an L18 quadgrid within the bbox as pandas GeoDataFrame
         """
-        L18_quadgrid_gdf = self._quadgrid_DB_from_bbox(bbox, driver='GeoDataFrame') # shapely geometry
+        L18_quadgrid_gdf = self._quadgrid_DB_from_bbox(bbox, **kwargs) # shapely geometry
         #print L18_quadgrid_gdf[L18_quadgrid_gdf['geometry'].iloc[0:].is_valid==False]
         # L18_quadgrid_geojson = quadgrid_GDF_to_geojson(L18_quadgrid_gdf) # geojson geometry
         #with open('test_quadgrid.json', 'w') as tf:
@@ -397,15 +408,27 @@ class QuadGridBuilder:
         """ we need a GeoDataFrame of the bbox later on """
         bbox_shp = shape(box(*bbox)) # a shapely shape
         bbox_gdf = gpd.GeoDataFrame({'geometry':[bbox_shp]}) # a geopandas GDF
+        self.log.debug('[BBOX] Got {} L18 tiles with GeoDataFrame geometry.'.format(len(L18_quadgrid_gdf)))
         return bbox_gdf, L18_quadgrid_gdf
 
 
-    def _quadgrid_DB_from_bbox(self, bbox, driver='GeoDataFrame'):
+    def _quadgrid_DB_from_bbox(self, bbox, **kwargs):
         """ returns a GeoDataFrame of ['geometry', 'id', 'completeness'] of L18 quadkey tiles in a BBOX
             west, south, east north """
+
+        driver = kwargs.get('driver','GeoDataFrame')
+        ignore_cmpl = kwargs.get('ignore', [])
+        self.log.debug("[CONN] Ignoring completeness values {}".format(ignore_cmpl))
+
         sql = """
-            SELECT cell_id, completeness, geom FROM cmpl_grid WHERE ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s, %s));
+            SELECT cell_id, completeness, geom FROM cmpl_grid WHERE
+            ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s, %s)) {};
         """
+        if len(ignore_cmpl) == 0:
+            sql = sql.format('')
+        else:
+            sql = sql.format('AND completeness not in ({})'.format(','.join(['%s']*len(ignore_cmpl))))
+
         bbox_sw_qk = self.latlon2quadkey(bbox[1], bbox[0], 18) # 122100231210313321
         bbox_ne_qk = self.latlon2quadkey(bbox[3], bbox[2], 18) # 122100231210313321
 
@@ -413,21 +436,10 @@ class QuadGridBuilder:
         self.log.debug('[BBOX] common qk {} of {}'.format(common_qk, [tuple(bbox+[4326])]))
 
         db_results_bb = self.connect_obm_cmpl(sql, [tuple(bbox+[4326])])
+        if not db_results_bb:
+            raise ValueError('Nothing to fetch in Bbox {} with ignoring {}'.format(bbox, ignore_cmpl))
+
         self.log.debug('[BBOX] Getting {} tiles below common qk {}'.format(len(db_results_bb), common_qk))
-
-        bbox_shp = shape(box(*bbox))
-
-        cmpls_db = {} # dict of quadkey => completeness
-        for qk, cmpl, _ in db_results_bb:
-            cmpls_db[qk] = cmpl
-
-        level2go = 18 - len('{}'.format(common_qk))
-        grid = self.quad_level_down(common_qk, level2go, [], bbox_shp)
-
-        """ make a list of L18 grid shapely polygons with quadkey value within the BBox """
-        L18_grid_bb_shp_polygons = [g for g in grid if g[1].intersects(bbox_shp)]
-        self.log.debug('[BBOX] Working with {} L18 tiles below common parent quadkey {} in BBOX {}'.format(len(L18_grid_bb_shp_polygons), common_qk, bbox))
-
 
         """ make a list of any zoomlevel database shapely polygons with completeness value """
         LX_db_bb_shp_polygons = []
@@ -436,32 +448,76 @@ class QuadGridBuilder:
             shp_cell.completeness = db_cell[1]
             LX_db_bb_shp_polygons += [shp_cell]
 
+        LX_grid_db_df = pd.DataFrame({
+            'completeness': [g.completeness for g in LX_db_bb_shp_polygons],
+            'geometry': [g for g in LX_db_bb_shp_polygons],
+            })
+        LX_grid_db_gdf = gpd.GeoDataFrame(LX_grid_db_df)
+        LX_grid_db_gdf.crs = {'init':'epsg:4326'}
+
+        bbox_shp = shape(box(*bbox))
+        bbox_gdf = gpd.GeoDataFrame({'geometry':[bbox_shp]}) # a geopandas GDF
+        bbox_gdf.crs = {'init':'epsg:4326'}
+
+        """ Intersect the DB result again with the bbox: db -> bb
+            We have to intersect with the tiles centroid later on to obtain
+            true intersected tiles and omit those that only touch the periphery
+        """
+        L18_tile_len = self.quadkey2bbox(bbox_sw_qk).length # length of a tile (0.00491 at L18)
+        """ buffer Bbox to NOT omit tiles at the margin when intersecting
+            This might happen after intersecting the DB tiles with the Bbox
+            when a intersection L18 margin tile centroid lies outside afterwards
+        """
+        bbox_gdf_buff = gpd.GeoDataFrame(geometry=bbox_gdf.buffer(L18_tile_len))
+        LX_grid_bb_gdf = gpd.overlay(LX_grid_db_gdf, bbox_gdf_buff, how='intersection')
+
+        level2go = 18 - len('{}'.format(common_qk))
+        self.log.debug('[BBOX] Going down {} quad level to L18.'.format(level2go))
+        LX_grid_bb_mltshp = MultiPolygon([s for s in LX_grid_bb_gdf['geometry']])
+        """ what we intersect against. If nothing is passed into this function, intersect against DB multipoly """
+        intersect_shp = kwargs.get('intersect_shp', LX_grid_bb_mltshp)
+        #_fallback = shape(box(*LX_grid_bb_mltshp.bounds)) # Fallback
+
+        grid = self.quad_level_down(common_qk, level2go, [], intersect_shp)
+
+        """ make a list of L18 grid shapely polygons with quadkey value within the BBox """
+        L18_grid_bb_shp_polygons = [g for g in grid if g[1].intersects(intersect_shp)]
+        self.log.debug('[BBOX] Working with {} L18 tiles below common parent quadkey {} in BBOX {}'.format(len(L18_grid_bb_shp_polygons), common_qk, bbox))
+
+        # _geometry = [g[1] for g in L18_grid_bb_shp_polygons], # cell square
         L18_grid_bb_df = pd.DataFrame({
             'quadkey': [g[0] for g in L18_grid_bb_shp_polygons],
             'geom': [g[1] for g in L18_grid_bb_shp_polygons], # cell square
             'geometry': [g[1].centroid for g in L18_grid_bb_shp_polygons],
             })
         L18_grid_bb_gdf = gpd.GeoDataFrame(L18_grid_bb_df)
+        L18_grid_bb_gdf.crs = {'init':'epsg:4326'}
 
-        LX_grid_bb_df = pd.DataFrame({
-            'completeness': [g.completeness for g in LX_db_bb_shp_polygons],
-            'geometry': [g for g in LX_db_bb_shp_polygons],
-            })
-        LX_grid_bb_gdf = gpd.GeoDataFrame(LX_grid_bb_df)
         """ find the completeness of L18 cells by intersection their centroid with LX DB cells """
         L18vsLX_intersection = gpd.sjoin(L18_grid_bb_gdf, LX_grid_bb_gdf, how='left', op='intersects', lsuffix='L18',rsuffix='LX')
 
         L18vsLX_intersection = L18vsLX_intersection[['geom', 'quadkey', 'completeness']]
         L18vsLX_intersection.columns = ['geometry', 'id', 'completeness']
+        L18vsLX_intersection_gdf = gpd.GeoDataFrame(L18vsLX_intersection) # have to 'cast' to gdf again
+        L18vsLX_intersection_gdf.crs = {'init':'epsg:4326'}
 
-        return L18vsLX_intersection
+        """ Check for empty (None) completeness and set to -1 """
+        L18vsLX_nan_cmpl_gdf = L18vsLX_intersection_gdf[L18vsLX_intersection_gdf['completeness'].isna()]
+        if len(L18vsLX_nan_cmpl_gdf.index) > 0:
+            self.log.warning('[QUAD][WARNING] {} Tiles with NONE type completeness after intersection. Setting -1.'.format(len(L18vsLX_nan_cmpl_gdf.index)))
+        #     L18vsLX_intersection_gdf = L18vsLX_intersection_gdf[L18vsLX_intersection_gdf['completeness'].isna()==False]
+            L18vsLX_intersection_gdf.loc[L18vsLX_intersection_gdf['completeness'].isna(), 'completeness'] = -1
+
+        """ Check for overlapping tiles """
+
+        return L18vsLX_intersection_gdf
 
 
 
     """ L18 tilelayer """
-    def quadgrid_from_bbox(self, bbox):
+    def quadgrid_from_bbox(self, bbox, **kwargs):
         """ Returns a geojson encoded quadkey tile layer for zoom level 18 """
-        bbox_gdf, L18_quadgrid_gdf = self.bbox_to_L18quadgrid_GDF(bbox)
+        bbox_gdf, L18_quadgrid_gdf = self.bbox_to_L18quadgrid_GDF(bbox, **kwargs)
         L18_quadgrid_geojson = self.quadgrid_GDF_to_geojson(L18_quadgrid_gdf)
         return L18_quadgrid_geojson
 
@@ -562,7 +618,7 @@ class QuadGridBuilder:
 
 
     """ go down the quad tree by number of levels """
-    def quad_level_down(self, qk, levels, grid = None, bbox_shp = None):
+    def quad_level_down(self, qk, levels, grid = None, intersect_geoms = None):
         if grid == None:
             grid = []
         if levels == 0: # return statement
@@ -573,11 +629,11 @@ class QuadGridBuilder:
             for q in range(0,4,1):
                 next_qk = '{}{}'.format(qk,q)
                 valid_path = True
-                if bbox_shp is not None:
-                    valid_path = self.quadkey2bbox(next_qk).intersects(bbox_shp)
+                if intersect_geoms is not None:
+                    valid_path = self.quadkey2bbox(next_qk).intersects(intersect_geoms)
 
                 if valid_path == True:
-                    self.quad_level_down(next_qk, levels-1, grid, bbox_shp)
+                    self.quad_level_down(next_qk, levels-1, grid, intersect_geoms)
 
         return grid
 
